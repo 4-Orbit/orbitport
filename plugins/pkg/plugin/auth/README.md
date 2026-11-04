@@ -6,12 +6,14 @@ requests.
 ## Overview
 
 Implements the `AuthPlugin` gRPC service (`proto/plugins/auth.proto`). Public
-requests use `ValidateToken(token)`. Gateway-internal capability routes use
+requests use `ValidateToken(token)`, which accepts only personal access tokens
+(PATs) from the configured PAT issuer and answers `Unauthenticated` for
+anything else, Auth0 tokens included. Without PAT config it refuses every token. Gateway-internal capability routes use
 `ValidateServiceToken(token, required_scopes)`, which accepts only allowlisted
 Auth0 M2M clients (`<client_id>@clients`) carrying `gty=client-credentials`,
 an expiry, and every required scope.
 
-Tokens are validated against an Auth0 tenant using the
+Service tokens are validated against an Auth0 tenant using the
 `auth0/go-jwt-middleware` validator with RS256 and a JWKS caching provider
 (5 min cache, 1 min allowed clock skew).
 

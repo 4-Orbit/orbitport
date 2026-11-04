@@ -33,6 +33,8 @@ enum HoldBehavior {
     /// Hold succeeds but resolves no tenancy, e.g. a dashboard predating the
     /// field.
     OkNoTenant,
+    /// Suspended account.
+    Inactive,
 }
 
 struct MockAccountPlugin {
@@ -67,6 +69,7 @@ impl AccountPlugin for MockAccountPlugin {
                 kms_tenant: String::new(),
             })),
             HoldBehavior::Insufficient => Err(Status::failed_precondition("insufficient_credits")),
+            HoldBehavior::Inactive => Err(Status::permission_denied("account_inactive")),
             HoldBehavior::Revoked => {
                 Err(Status::permission_denied("Unknown or revoked credential"))
             }
@@ -143,10 +146,10 @@ async fn connect(addr: SocketAddr) -> AccountPluginClient<Channel> {
 
 /// Stand-in auth filter producing a fixed AuthContext, bypassing JWT validation.
 fn synthetic_auth() -> impl Filter<Extract = (AuthContext,), Error = Rejection> + Clone {
-    synthetic_auth_as("client-warp", "")
+    synthetic_auth_as("client-warp", "jti-warp")
 }
 
-/// Same, with a caller-chosen client_id/jti to drive the PAT and Auth0 branches.
+/// Same, with a caller-chosen client_id/jti.
 fn synthetic_auth_as(
     client_id: &str,
     jti: &str,
@@ -201,6 +204,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
             GatewayError::InsufficientCredits => StatusCode::PAYMENT_REQUIRED,
             GatewayError::AccountPluginUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             GatewayError::InvalidCredential => StatusCode::UNAUTHORIZED,
+            GatewayError::AccountInactive => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         return Ok(warp::reply::with_status(
@@ -258,9 +262,7 @@ async fn filter_plugin_unreachable_returns_503() {
 }
 
 #[tokio::test]
-async fn filter_no_client_passes_through_and_does_not_release() {
-    // With the account plugin unset the handler must still run, with an
-    // empty ledger_id.
+async fn filter_no_client_returns_503_and_does_not_release() {
     let route = warp::path("test")
         .and(with_account_hold(
             synthetic_auth(),
@@ -268,21 +270,11 @@ async fn filter_no_client_passes_through_and_does_not_release() {
             1,
             "kms.GetCapabilities",
         ))
-        .and_then(|ctx: AuthContextWithHold| async move {
-            assert!(
-                ctx.ledger_id.is_empty(),
-                "ledger_id must be empty when client is None"
-            );
-            assert_eq!(ctx.auth.client_id, "client-warp");
-            Ok::<_, Rejection>(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({"status": "ok"})),
-                StatusCode::OK,
-            ))
-        })
+        .and_then(ok_handler)
         .recover(handle_rejection);
 
     let resp = warp::test::request().path("/test").reply(&route).await;
-    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     account_release(None, "").await;
 }
@@ -341,6 +333,29 @@ async fn filter_revoked_credential_returns_401() {
     let resp = warp::test::request().path("/test").reply(&route).await;
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(hold_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(release_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn filter_account_inactive_returns_403() {
+    let (addr, hold_calls, release_calls, _) =
+        start_mock_plugin_capturing(HoldBehavior::Inactive).await;
+    let client = connect(addr).await;
+
+    let route = warp::path("test")
+        .and(with_account_hold(
+            synthetic_auth_as("acct-1", "pat-jti-1"),
+            Some(client),
+            1,
+            "kms.GetCapabilities",
+        ))
+        .and_then(ok_handler)
+        .recover(handle_rejection);
+
+    let resp = warp::test::request().path("/test").reply(&route).await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     assert_eq!(hold_calls.load(Ordering::SeqCst), 1);
     assert_eq!(release_calls.load(Ordering::SeqCst), 0);
 }
@@ -405,30 +420,6 @@ async fn account_hold_forwards_dynamic_operation_tag() {
     assert_eq!(operation, "kms.Sign:ED25519");
 }
 
-/// Legacy Auth0 M2M tokens (empty jti) keep the existing `@clients` stripping.
-#[tokio::test]
-async fn filter_legacy_m2m_strips_clients_suffix() {
-    let (addr, _, _, last_hold) = start_mock_plugin_capturing(HoldBehavior::Ok).await;
-    let client = connect(addr).await;
-
-    let route = warp::path("test")
-        .and(with_account_hold(
-            synthetic_auth_as("cid-123@clients", ""),
-            Some(client),
-            1,
-            "kms.GetCapabilities",
-        ))
-        .and_then(ok_handler)
-        .recover(handle_rejection);
-
-    let resp = warp::test::request().path("/test").reply(&route).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let (client_id, jti, _) = last_hold.lock().unwrap().clone();
-    assert_eq!(client_id, "cid-123");
-    assert!(jti.is_empty());
-}
-
 /// The whole point of reading tenancy from Hold: a PAT that claims one tenant
 /// must be routed under the one the dashboard resolved, not its own claim.
 #[tokio::test]
@@ -490,25 +481,4 @@ async fn filter_pat_without_account_plugin_returns_503() {
 
     let resp = warp::test::request().path("/test").reply(&route).await;
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-}
-
-/// Legacy Auth0 tokens are unaffected: with no account plugin they keep routing
-/// under the sub the auth plugin validated.
-#[tokio::test]
-async fn filter_legacy_without_account_plugin_keeps_token_tenant() {
-    let route = warp::path("test")
-        .and(with_account_hold(
-            synthetic_auth_claiming("cid-123@clients", "", "cid-123@clients"),
-            None,
-            1,
-            "kms.GetCapabilities",
-        ))
-        .and_then(tenant_handler)
-        .recover(handle_rejection);
-
-    let resp = warp::test::request().path("/test").reply(&route).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: serde_json::Value = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body["kms_tenant"], "cid-123@clients");
 }

@@ -115,7 +115,7 @@ func mintES256(t *testing.T, key *ecdsa.PrivateKey, kid string, claims jwt.MapCl
 }
 
 // newTestPlugin points the PAT path at the in-process issuer mock. The Auth0
-// domain is a dead hostname, which is what the fall-through test asserts on.
+// domain is a dead hostname.
 func newTestPlugin(t *testing.T, issuerAddr string) *Plugin {
 	t.Helper()
 	viper.Reset()
@@ -387,33 +387,6 @@ func TestValidateServiceToken_ReportsAuth0JWKSErrorsAsUnavailable(t *testing.T) 
 	require.Equal(t, codes.Unavailable, st.Code())
 }
 
-// Same outage, customer path: an Auth0 JWKS failure is not a bad token and
-// must surface as Unavailable so the gateway answers 503 rather than 401.
-func TestValidateToken_ReportsAuth0JWKSErrorsAsUnavailable(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	jwtValidator, err := auth0validator.New(
-		wrapAuth0KeyFunc(func(context.Context) (interface{}, error) {
-			return nil, errors.New("JWKS request failed")
-		}),
-		auth0validator.RS256,
-		testAuth0Iss,
-		[]string{testPatAud},
-		auth0validator.WithCustomClaims(func() auth0validator.CustomClaims {
-			return &serviceClaims{}
-		}),
-	)
-	require.NoError(t, err)
-	p := &Plugin{jwtValidator: jwtValidator}
-
-	_, err = p.ValidateToken(context.Background(), &proto.TokenValidationRequest{
-		Token: mintServiceToken(t, key, "some-customer@clients", ""),
-	})
-	st, ok := status.FromError(err)
-	require.True(t, ok, "expected gRPC status error, got %v", err)
-	require.Equal(t, codes.Unavailable, st.Code())
-}
-
 func TestValidateServiceToken_ScopeMatching(t *testing.T) {
 	p, key := newServiceTestPlugin(t)
 
@@ -535,6 +508,14 @@ func TestServiceClientIDSetTrimsAndDeduplicatesClientIDs(t *testing.T) {
 	require.True(t, hasAnother)
 }
 
+func requireUnauthenticated(t *testing.T, err error) *status.Status {
+	t.Helper()
+	st, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got %v", err)
+	require.Equal(t, codes.Unauthenticated, st.Code(), "got: %v", st.Message())
+	return st
+}
+
 func TestValidateToken_PATHappyPath(t *testing.T) {
 	key := newP256Key(t)
 	mock := &mockIssuer{jwks: jwksJSON("kid-1", &key.PublicKey)}
@@ -559,7 +540,7 @@ func TestValidateToken_PATHappyPath(t *testing.T) {
 	require.Empty(t, resp.KmsTenant)
 }
 
-func TestValidateToken_WrongIssFallsThroughToAuth0(t *testing.T) {
+func TestValidateToken_WrongIssRejected(t *testing.T) {
 	key := newP256Key(t)
 	mock := &mockIssuer{jwks: jwksJSON("kid-1", &key.PublicKey)}
 	p := newTestPlugin(t, startMockIssuer(t, mock))
@@ -568,11 +549,20 @@ func TestValidateToken_WrongIssFallsThroughToAuth0(t *testing.T) {
 	claims["iss"] = "https://somewhere-else.test"
 	token := mintES256(t, key, "kid-1", claims)
 
-	// Routed to the Auth0 path (dead domain) — must error, and must never
-	// have touched the issuer mock.
 	_, err := p.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: token})
-	require.Error(t, err)
+	requireUnauthenticated(t, err)
 	require.Equal(t, 0, mock.callCount())
+}
+
+func TestValidateToken_Auth0CustomerTokenRejected(t *testing.T) {
+	svc, key := newServiceTestPlugin(t)
+	p := newTestPlugin(t, startMockIssuer(t, &mockIssuer{}))
+	p.jwtValidator = svc.jwtValidator
+
+	_, err := p.ValidateToken(context.Background(), &proto.TokenValidationRequest{
+		Token: mintServiceToken(t, key, "some-customer@clients", ""),
+	})
+	requireUnauthenticated(t, err)
 }
 
 func TestValidateToken_UnknownKidRefetches(t *testing.T) {
@@ -634,8 +624,7 @@ func TestValidateToken_AlgConfusionRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = p.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: signed})
-	require.Error(t, err)
-	require.ErrorIs(t, err, jwt.ErrTokenSignatureInvalid)
+	requireUnauthenticated(t, err)
 }
 
 func TestValidateToken_MissingJtiRejected(t *testing.T) {
@@ -648,8 +637,8 @@ func TestValidateToken_MissingJtiRejected(t *testing.T) {
 	token := mintES256(t, key, "kid-1", claims)
 
 	_, err := p.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: token})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing jti")
+	st := requireUnauthenticated(t, err)
+	require.Contains(t, st.Message(), "missing jti")
 }
 
 func TestNewPlugin_PartialPatConfigFailsStartup(t *testing.T) {
@@ -734,15 +723,7 @@ func TestValidateTokenRejectsServiceCredentials(t *testing.T) {
 	_, err := plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{
 		Token: mintServiceToken(t, key, "dashboard-service@clients", "pat:issue"),
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "service credential")
-
-	resp, err := plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{
-		Token: mintServiceToken(t, key, "some-customer@clients", ""),
-	})
-	require.NoError(t, err)
-	require.True(t, resp.Ok)
-	require.Equal(t, "some-customer@clients", resp.ClientId)
+	requireUnauthenticated(t, err)
 }
 
 // The two RPCs partition credentials: a client is either allowlisted for
@@ -762,13 +743,10 @@ func TestServiceAndCustomerCredentialsArePartitioned(t *testing.T) {
 	require.Equal(t, "dashboard-service", serviceResp.ClientId)
 
 	_, err = plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: service})
-	require.Error(t, err, "the PAT-minting credential must not authenticate on the metered API")
+	requireUnauthenticated(t, err)
 
-	// The customer is the exact mirror, and holding pat:issue does not help:
-	// the allowlist is the gate, not the scope.
-	customerResp, err := plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: customer})
-	require.NoError(t, err)
-	require.Equal(t, "some-customer@clients", customerResp.ClientId)
+	_, err = plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: customer})
+	requireUnauthenticated(t, err)
 
 	_, err = plugin.ValidateServiceToken(context.Background(), &proto.ServiceTokenValidationRequest{
 		Token:          customer,

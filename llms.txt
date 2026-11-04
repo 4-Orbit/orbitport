@@ -30,7 +30,7 @@
 ## Plugins
 
 - [plugins/pkg/plugin/aptosorbital/README.md](plugins/pkg/plugin/aptosorbital/README.md): Wraps `api.aptosorbital.com` for satellite-derived TRNG.
-- [plugins/pkg/plugin/auth/README.md](plugins/pkg/plugin/auth/README.md): Fail-closed Auth0 JWT validation.
+- [plugins/pkg/plugin/auth/README.md](plugins/pkg/plugin/auth/README.md): Fail-closed PAT validation for customer tokens; Auth0 for service tokens.
 - [plugins/pkg/plugin/authnoop/README.md](plugins/pkg/plugin/authnoop/README.md): Dev-only noop auth that accepts every token.
 - [plugins/pkg/plugin/ipfs/README.md](plugins/pkg/plugin/ipfs/README.md): Kubo wrapper with LRU cache and IPNS publishing.
 - [plugins/pkg/plugin/masterseed/README.md](plugins/pkg/plugin/masterseed/README.md): Rolling pool of satellite seeds with offset-reserved derivation.

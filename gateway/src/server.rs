@@ -266,6 +266,10 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
                     "message": "Unknown or revoked credential"
                 }),
             ),
+            GatewayError::AccountInactive => (
+                StatusCode::FORBIDDEN,
+                serde_json::json!({"error": "account_inactive"}),
+            ),
             GatewayError::AuthPluginConnectionError(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 serde_json::json!({"error": "auth_plugin_unavailable"}),

@@ -23,6 +23,10 @@ var ErrInsufficientCredits = errors.New("insufficient_credits")
 // an auth failure and never a plugin outage.
 var ErrUnknownCredential = errors.New("unknown_or_revoked_credential")
 
+// ErrAccountInactive is returned by dashboardClient.Hold when the dashboard
+// responds with HTTP 403 + code=ACCOUNT_INACTIVE (suspended account).
+var ErrAccountInactive = errors.New("account_inactive")
+
 // dashboardClient is a typed HTTP wrapper around the dashboard backend's
 // service credit endpoints. It attaches an Auth0 M2M bearer token on every
 // request and applies a per-request timeout.
@@ -107,6 +111,7 @@ func (d *dashboardClient) send(ctx context.Context, method, path string, body []
 }
 
 // Hold posts to /service/credits/hold. Returns ErrInsufficientCredits on 422,
+// ErrAccountInactive on 403 ACCOUNT_INACTIVE, ErrUnknownCredential on 404,
 // or a wrapped transport error on any other non-2xx.
 func (d *dashboardClient) Hold(ctx context.Context, clientID string, units uint32, operation, jti string) (holdResponseBody, error) {
 	var empty holdResponseBody
@@ -137,6 +142,13 @@ func (d *dashboardClient) Hold(ctx context.Context, clientID string, units uint3
 			return empty, ErrInsufficientCredits
 		}
 		return empty, fmt.Errorf("dashboard hold rejected (422): %s", strings.TrimSpace(string(rawBody)))
+	case http.StatusForbidden:
+		var parsed dashboardErrorBody
+		_ = json.Unmarshal(rawBody, &parsed)
+		if parsed.Code == "ACCOUNT_INACTIVE" {
+			return empty, ErrAccountInactive
+		}
+		return empty, fmt.Errorf("dashboard hold rejected (403): %s", strings.TrimSpace(string(rawBody)))
 	case http.StatusNotFound:
 		return empty, ErrUnknownCredential
 	default:

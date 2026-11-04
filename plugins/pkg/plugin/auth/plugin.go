@@ -95,7 +95,9 @@ func NewPlugin() (*Plugin, error) {
 			plugin.patAudience = cfg.Auth0Audience
 		}
 		plugin.patKeys = cache
-		logger.Infof("PAT dual validation is ON (iss=%s)", cfg.PatIss)
+		logger.Infof("PAT validation is ON (iss=%s)", cfg.PatIss)
+	} else {
+		logger.Warn("PAT config is absent: ValidateToken will refuse every customer token")
 	}
 
 	return plugin, nil
@@ -130,47 +132,20 @@ func newAuthPlugin(auth0Domain, auth0Audience string) (*Plugin, error) {
 	return plugin, nil
 }
 
-// ValidateToken handles the ValidateToken RPC call. PATs return a non-empty
-// Jti; the legacy Auth0 path returns Jti="".
+// ValidateToken handles the ValidateToken RPC call. Only PATs authenticate
+// customers; every PAT carries a non-empty Jti.
 func (p *Plugin) ValidateToken(ctx context.Context, req *proto.TokenValidationRequest) (*proto.TokenValidationResponse, error) {
 	logger := utils.GetLogger("orbitport:auth")
 	logger.Debug("Validating token")
-	if p.patKeys != nil && unverifiedIssuer(req.Token) == p.patIss {
-		resp, err := p.validatePAT(ctx, req.Token)
-		if err != nil {
-			logger.Warnf("Encountered error while validating PAT: %v", err)
-			return nil, err
-		}
-		return resp, nil
+	if p.patKeys == nil || unverifiedIssuer(req.Token) != p.patIss {
+		return nil, status.Error(codes.Unauthenticated, "invalid_credential: not a personal access token")
 	}
-	validatedClaims, err := p.validateAuth0Token(ctx, req.Token)
+	resp, err := p.validatePAT(ctx, req.Token)
 	if err != nil {
-		logger.Warnf("Encountered error while validating JWT: %v", err)
-		if errors.Is(err, errAuth0JWKSUnavailable) {
-			return nil, status.Error(codes.Unavailable, "Auth0 JWKS unavailable")
-		}
-		return nil, fmt.Errorf("failed to validate JWT token: %w", err)
+		logger.Warnf("Encountered error while validating PAT: %v", err)
+		return nil, err
 	}
-	clientID := validatedClaims.RegisteredClaims.Subject
-	if clientID == "" {
-		return nil, fmt.Errorf("validated JWT is missing sub claim")
-	}
-	// A gateway-internal service credential is not a customer credential: it
-	// targets the same audience, so without this it would also pass as a
-	// paying client on the metered API.
-	if bare, isM2M := strings.CutSuffix(clientID, "@clients"); isM2M {
-		if _, isService := p.serviceClientIDs[bare]; isService {
-			return nil, fmt.Errorf("service credential cannot authenticate as a customer")
-		}
-	}
-
-	return &proto.TokenValidationResponse{
-		Ok:       true,
-		ClientId: clientID,
-		// Legacy KMS tenancy is the raw sub, @clients suffix included —
-		// byte-identical to what the gateway used before.
-		KmsTenant: clientID,
-	}, nil
+	return resp, nil
 }
 
 // ValidateServiceToken authorizes an Auth0 M2M client for a gateway-internal

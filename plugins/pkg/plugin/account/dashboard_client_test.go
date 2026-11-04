@@ -104,6 +104,17 @@ func TestDashboardClient_Hold_InsufficientCredits(t *testing.T) {
 	require.ErrorIs(t, err, ErrInsufficientCredits)
 }
 
+func TestDashboardClient_Hold_AccountInactive(t *testing.T) {
+	client, srv := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"ACCOUNT_INACTIVE","message":"Account is not active"}`))
+	}))
+	defer srv.Close()
+
+	_, err := client.Hold(context.Background(), "client-x", 1, "kms.Sign:ED25519", "jti-1")
+	require.ErrorIs(t, err, ErrAccountInactive)
+}
+
 func TestDashboardClient_Hold_OtherErrors(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -113,6 +124,7 @@ func TestDashboardClient_Hold_OtherErrors(t *testing.T) {
 		{"500", http.StatusInternalServerError, `{"error":"boom"}`},
 		{"401", http.StatusUnauthorized, ``},
 		{"422_other_code", http.StatusUnprocessableEntity, `{"code":"OTHER"}`},
+		{"403_no_code", http.StatusForbidden, `{"message":"nope"}`},
 	}
 
 	for _, tc := range cases {
@@ -126,6 +138,7 @@ func TestDashboardClient_Hold_OtherErrors(t *testing.T) {
 			_, err := client.Hold(context.Background(), "client-x", 1, "kms.Sign:ED25519", "")
 			require.Error(t, err)
 			require.False(t, errors.Is(err, ErrInsufficientCredits))
+			require.False(t, errors.Is(err, ErrAccountInactive))
 		})
 	}
 }

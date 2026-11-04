@@ -27,6 +27,8 @@ pub enum GatewayError {
     PatExpired,
     #[error("Unknown or revoked credential")]
     InvalidCredential,
+    #[error("Account inactive")]
+    AccountInactive,
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
     #[error("Insufficient credits")]

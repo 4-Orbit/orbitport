@@ -68,6 +68,24 @@ func TestPlugin_Hold_InsufficientCreditsMapsToFailedPrecondition(t *testing.T) {
 	require.Equal(t, "insufficient_credits", st.Message())
 }
 
+func TestPlugin_Hold_AccountInactiveMapsToPermissionDenied(t *testing.T) {
+	plugin, srv := newTestPlugin(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"ACCOUNT_INACTIVE","message":"Account is not active"}`))
+	})
+	defer srv.Close()
+
+	resp, err := plugin.Hold(context.Background(), &proto.HoldRequest{
+		ClientId: "client-1", Units: 1, Operation: "kms.Sign:ED25519",
+	})
+	require.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.PermissionDenied, st.Code())
+	require.Equal(t, "account_inactive", st.Message())
+}
+
 func TestPlugin_Hold_TransportFailureMapsToUnavailable(t *testing.T) {
 	plugin, srv := newTestPlugin(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

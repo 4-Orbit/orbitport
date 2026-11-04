@@ -27,10 +27,8 @@ const AUTH_VALIDATE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct AuthContext {
     pub jwt: String,
     pub client_id: String,
-    /// Non-empty = the token was a PAT; empty = legacy Auth0 M2M.
     pub jti: String,
-    /// PATs: the token's kms_tenant claim. Legacy Auth0: the raw sub.
-    /// Empty when the auth plugin predates the field.
+    /// The token's kms_tenant claim; ignored, tenancy comes from Hold.
     pub kms_tenant: String,
 }
 
@@ -137,6 +135,11 @@ async fn authorize(
                         metrics::record_auth("pat_expired", timer.elapsed().as_secs_f64());
                         tracing::info!("Rejected expired PAT");
                         warp::reject::custom(GatewayError::PatExpired)
+                    }
+                    tonic::Code::Unauthenticated => {
+                        metrics::record_auth("invalid_credential", timer.elapsed().as_secs_f64());
+                        tracing::info!("Rejected non-PAT or invalid token: {}", e);
+                        warp::reject::custom(GatewayError::InvalidCredential)
                     }
                     _ => {
                         metrics::record_auth("failed", timer.elapsed().as_secs_f64());
@@ -280,16 +283,6 @@ pub fn with_account_hold(
         .and_then(move |auth, account_client| account_hold(auth, account_client, units, operation))
 }
 
-/// Legacy Auth0 tenancy: the raw sub the auth plugin validated. Falling back
-/// to client_id keeps the exact value this path used before kms_tenant existed.
-fn legacy_tenant(auth: &AuthContext) -> String {
-    if auth.kms_tenant.is_empty() {
-        auth.client_id.clone()
-    } else {
-        auth.kms_tenant.clone()
-    }
-}
-
 /// Places a credit hold tagged with `operation`. Callable directly when the tag
 /// depends on the request body (the RPC route), which a filter cannot see.
 pub async fn account_hold(
@@ -299,41 +292,17 @@ pub async fn account_hold(
     operation: &str,
 ) -> Result<AuthContextWithHold, warp::Rejection> {
     let Some(mut client) = account_client else {
-        // No Hold means no authoritative tenancy, and a PAT's own claim is
-        // not a substitute.
-        if !auth.jti.is_empty() {
-            metrics::record_account_hold("pat_without_account_plugin");
-            tracing::error!(
-                "PAT presented but ORBITPORT_ACCOUNT_PLUGIN is unset: cannot resolve KMS tenancy"
-            );
-            return Err(warp::reject::custom(
-                GatewayError::AccountPluginUnavailable(
-                    "account plugin required to resolve tenancy".to_string(),
-                ),
-            ));
-        }
-        let kms_tenant = legacy_tenant(&auth);
-        return Ok(AuthContextWithHold {
-            auth,
-            ledger_id: String::new(),
-            kms_tenant,
-        });
+        metrics::record_account_hold("no_account_plugin");
+        tracing::error!("ORBITPORT_ACCOUNT_PLUGIN is unset: cannot resolve KMS tenancy");
+        return Err(warp::reject::custom(
+            GatewayError::AccountPluginUnavailable(
+                "account plugin required to resolve tenancy".to_string(),
+            ),
+        ));
     };
 
-    // Auth0 M2M tokens carry `sub` as `<client_id>@clients` but the dashboard
-    // stores the bare client_id, so strip the suffix at this boundary only —
-    // KMS keys are namespaced by the full `client_id` and must not change.
-    // PATs carry the Account.id as `sub`, so pass those through unstripped.
-    let client_id = if auth.jti.is_empty() {
-        auth.client_id
-            .strip_suffix("@clients")
-            .unwrap_or(&auth.client_id)
-            .to_string()
-    } else {
-        auth.client_id.clone()
-    };
     let request = tonic::Request::new(HoldRequest {
-        client_id,
+        client_id: auth.client_id.clone(),
         units,
         operation: operation.to_string(),
         jti: auth.jti.clone(),
@@ -354,13 +323,10 @@ pub async fn account_hold(
                 ));
             }
             let kms_tenant = match body.kms_tenant.trim() {
-                "" if auth.jti.is_empty() => legacy_tenant(&auth),
-                // A PAT's tenancy must come from the Account row. Falling back
-                // to the claim would re-trust a value the token asserts about
-                // itself and keeps for up to a year.
+                // Tenancy must come from the Account row, never from the token's own claim.
                 "" => {
                     metrics::record_account_hold("missing_tenant");
-                    tracing::error!("Account plugin Hold returned no kms_tenant for a PAT");
+                    tracing::error!("Account plugin Hold returned no kms_tenant");
                     return Err(warp::reject::custom(
                         GatewayError::AccountPluginUnavailable(
                             "hold response missing kms_tenant".to_string(),
@@ -380,6 +346,10 @@ pub async fn account_hold(
             tonic::Code::FailedPrecondition => {
                 metrics::record_account_hold("insufficient_credits");
                 Err(warp::reject::custom(GatewayError::InsufficientCredits))
+            }
+            tonic::Code::PermissionDenied if e.message() == "account_inactive" => {
+                metrics::record_account_hold("account_inactive");
+                Err(warp::reject::custom(GatewayError::AccountInactive))
             }
             // Dashboard 404: unknown/revoked/expired credential — the PAT
             // revocation path. An auth failure, not a plugin outage.
@@ -547,7 +517,7 @@ mod test {
         let auth = AuthContext {
             jwt: "test_token".to_string(),
             client_id: "client".to_string(),
-            jti: String::new(),
+            jti: "jti".to_string(),
             kms_tenant: String::new(),
         };
 

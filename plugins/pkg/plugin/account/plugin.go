@@ -65,7 +65,8 @@ func (p *Plugin) Close() {}
 
 // Hold deducts credits via the dashboard /service/credits/hold endpoint.
 // Returns gRPC codes.FailedPrecondition with HoldResponse.Error="insufficient_credits"
-// when the dashboard reports the account is out of credits; codes.Unavailable
+// when the dashboard reports the account is out of credits;
+// codes.PermissionDenied "account_inactive" for a suspended account; codes.Unavailable
 // on any other transport failure.
 func (p *Plugin) Hold(ctx context.Context, req *proto.HoldRequest) (*proto.HoldResponse, error) {
 	clientID := req.GetClientId()
@@ -83,6 +84,10 @@ func (p *Plugin) Hold(ctx context.Context, req *proto.HoldRequest) (*proto.HoldR
 		if errors.Is(err, ErrInsufficientCredits) {
 			p.logger.Debugf("hold rejected for client_id=%s op=%s: insufficient credits", clientID, req.GetOperation())
 			return nil, status.Error(codes.FailedPrecondition, sentinelInsufficient)
+		}
+		if errors.Is(err, ErrAccountInactive) {
+			p.logger.Debugf("hold rejected for client_id=%s op=%s: account inactive", clientID, req.GetOperation())
+			return nil, status.Error(codes.PermissionDenied, ErrAccountInactive.Error())
 		}
 		if errors.Is(err, ErrUnknownCredential) {
 			p.logger.Debugf("hold rejected for client_id=%s op=%s: unknown or revoked credential", clientID, req.GetOperation())
