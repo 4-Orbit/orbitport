@@ -10,7 +10,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROLES=(dev devops sre cloud-security)
+ROLES=(dev devops sre cloud-security ai-agents)
 
 # first line of the README, without the "# "
 summary() { sed -n '1s/^# //p' "$1/README.md"; }

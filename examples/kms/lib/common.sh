@@ -5,6 +5,7 @@
 #   ORBITPORT_PAT            personal access token from the dashboard (required)
 #   ORBITPORT_URL            gateway base URL (default https://op.spacecomputer.io)
 #   ORBITPORT_DASHBOARD_URL  dashboard URL shown by some demos
+#   KMS_MCP_BIN              kms-mcp executable for the AI agent demos (default kms-mcp on PATH)
 #   DEMO_PAUSE=1             wait for Enter between steps
 
 set -euo pipefail
@@ -13,7 +14,7 @@ KMS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXAMPLES_DIR="$(dirname "$KMS_DIR")"
 
 # ignore copies in the shell, so a stale token there cannot shadow .env
-unset ORBITPORT_PAT ORBITPORT_URL ORBITPORT_DASHBOARD_URL DEMO_PAUSE
+unset ORBITPORT_PAT ORBITPORT_URL ORBITPORT_DASHBOARD_URL KMS_MCP_BIN DEMO_PAUSE
 if [[ -f "$EXAMPLES_DIR/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -23,6 +24,7 @@ fi
 
 ORBITPORT_URL="${ORBITPORT_URL:-https://op.spacecomputer.io}"
 ORBITPORT_DASHBOARD_URL="${ORBITPORT_DASHBOARD_URL:-https://accounts.spacecomputer.io}"
+KMS_MCP_BIN="${KMS_MCP_BIN:-kms-mcp}"
 RPC_URL="${ORBITPORT_URL%/}/api/v1/rpc"
 
 # demo keys, created once by setup.sh (aliases are scoped to your account)
@@ -34,6 +36,7 @@ RPC_URL="${ORBITPORT_URL%/}/api/v1/rpc"
   KEY_ETH="examples-eth"
   KEY_ROTATION_SIGN="examples-rotation-sign"
   KEY_ROTATION_ENCRYPT="examples-rotation-encrypt"
+  KEY_AGENT_WALLET="examples-agent-wallet"
 }
 
 ############################################
@@ -154,6 +157,53 @@ rpc() {
     return 0
   fi
   if [[ "$out" == *"does not belong"* || "$out" == *"not found"* ]]; then
+    die "$1 failed: $out (did you run ./setup.sh?)"
+  fi
+  die "$1 failed: $out"
+}
+
+############################################
+# MCP (AI agent demos)
+############################################
+
+# each request starts kms-mcp, initializes and sends one message; the token goes in its
+# environment, as an MCP client passes it, never as an argument
+mcp_request() {
+  local request="$1" init out
+  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"kms-examples","version":"1"}}}'
+  out=$(printf '%s\n%s\n' "$init" "$request" |
+    ORBITPORT_PAT="$ORBITPORT_PAT" ORBITPORT_URL="$ORBITPORT_URL" "$KMS_MCP_BIN") || return 1
+  echo "$out" | jq -c 'select(.id == 2)'
+}
+
+# mcp_tools: prints the names of the tools the MCP server offers, as a JSON array
+mcp_tools() {
+  echo "   ${C_CYAN}→ tools/list${C_RESET}" >&2
+  mcp_request '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq -c '[.result.tools[].name]'
+}
+
+# mcp_try <tool> <arguments-json>: prints the tool result JSON, or the error text with status 1
+mcp_try() {
+  local tool="$1" args="$2" resp
+  echo "   ${C_CYAN}→ $tool${C_RESET} ${C_DIM}$(echo "$args" | jq -c 'walk(if type == "string" and length > 40 then .[0:37] + "..." else . end)')${C_RESET}" >&2
+  resp=$(mcp_request "$(jq -nc --arg n "$tool" --argjson a "$args" \
+    '{jsonrpc:"2.0", id:2, method:"tools/call", params:{name:$n, arguments:$a}}')") || { echo "cannot run $KMS_MCP_BIN"; return 1; }
+  if echo "$resp" | jq -e '.result.isError == false' >/dev/null 2>&1; then
+    echo "$resp" | jq -c '.result.structuredContent'
+    return 0
+  fi
+  echo "$resp" | jq -r '.result.content[0].text // .error.message // "no response from the MCP server"'
+  return 1
+}
+
+# mcp_call <tool> <arguments-json>: like mcp_try, but stops the demo on error
+mcp_call() {
+  local out
+  if out=$(mcp_try "$@"); then
+    echo "$out"
+    return 0
+  fi
+  if [[ "$out" == *"does not exist"* ]]; then
     die "$1 failed: $out (did you run ./setup.sh?)"
   fi
   die "$1 failed: $out"
