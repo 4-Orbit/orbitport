@@ -2,42 +2,11 @@ use std::io::Result;
 
 const SERDE_DERIVES: &str = "#[derive(serde::Serialize, serde::Deserialize)]";
 const PASCAL_CASE: &str = "#[serde(rename_all = \"PascalCase\")]";
-const KMS_PASCAL_CASE_TYPES: &[&str] = &[
-    "kms.Tag",
-    "kms.KeyMetadata",
-    "kms.EncryptRequest",
-    "kms.EncryptResponse",
-    "kms.DecryptRequest",
-    "kms.DecryptResponse",
-    "kms.SignRequest",
-    "kms.SignResponse",
-    "kms.EncapsulateRequest",
-    "kms.EncapsulateResponse",
-    "kms.DecapsulateRequest",
-    "kms.DecapsulateResponse",
-    "kms.CreateKeyRequest",
-    "kms.CreateKeyResponse",
-    "kms.GetKeyMetadataRequest",
-    "kms.GetKeyMetadataResponse",
-    "kms.GetPublicKeyRequest",
-    "kms.GetPublicKeyResponse",
-    "kms.GenerateDataKeyRequest",
-    "kms.GenerateDataKeyResponse",
-    "kms.RotateKeyRequest",
-    "kms.RotateKeyResponse",
-    "kms.GetCapabilitiesRequest",
-    "kms.GetCapabilitiesResponse",
-    "kms.SigningCapability",
-    "kms.KeyAgreementCapability",
-    "kms.SchemeCapability",
-];
-
 const THRESHOLD_PASCAL_CASE_TYPES: &[&str] = &["threshold.DkgRequest", "threshold.DkgResponse"];
 
 fn apply_service_attributes(config: tonic_prost_build::Builder) -> tonic_prost_build::Builder {
-    KMS_PASCAL_CASE_TYPES
+    THRESHOLD_PASCAL_CASE_TYPES
         .iter()
-        .chain(THRESHOLD_PASCAL_CASE_TYPES.iter())
         .fold(config, |config, ty| config.type_attribute(*ty, PASCAL_CASE))
 }
 
@@ -71,6 +40,8 @@ fn build_services(proto_dir: &str) -> Result<()> {
     config.compile_protos(
         &service_protos
             .iter()
+            // Public KMS types are generated once in orbitport-kms-api.
+            .filter(|s| !s.ends_with("/kms.proto"))
             .map(|s| s.as_str())
             .collect::<Vec<_>>(),
         &[proto_dir],

@@ -191,6 +191,17 @@ namespace. Operators can copy the default policy and add Cedar `forbid`
 policies, which override permits, to block operations such as deleting
 production entries.
 
+## Local MCP Access
+
+The local `kms-mcp` executable exposes existing KMS methods as agent tools
+over stdio and calls the gateway's `/api/v1/rpc` endpoint using a PAT. It does
+not connect directly to this plugin. Manual API calls remain available using
+PATs, with tenant isolation and Cedar enforcement unchanged. Legacy Auth0
+customer credentials are rejected. Secret-returning tools
+and key-store Delete require user opt-in; key-store Put remains available by
+default and is annotated destructive because it can overwrite an entry.
+See [installation and configuration](../../../../mcp/README.md).
+
 ## Capabilities
 
 `GetCapabilities` (gateway-side) advertises the supported scheme matrix:

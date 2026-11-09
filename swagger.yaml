@@ -90,6 +90,10 @@ paths:
         authenticated `client_id`, validated names, and OpenBao path
         construction under the caller's tenant namespace; Cedar adds policy
         control on top of that isolation boundary.
+        The local stdio MCP executable calls this same endpoint using a PAT.
+        no hosted MCP route is added. Manual calls remain available with PATs.
+        Customer authentication accepts PATs only. Auth0 service tokens cannot
+        authenticate on this endpoint.
       security:
         - BearerAuth: []
       requestBody:
@@ -142,6 +146,32 @@ paths:
                       Name: github/prod
                       Secret:
                         api_key: replace-me
+        '403':
+          description: The account is inactive and cannot place a credit hold.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    enum: [account_inactive]
+              example:
+                error: account_inactive
+        '413':
+          description: The HTTP request body exceeds ORBITPORT_RPC_BODY_MAX_BYTES (64 KiB by default).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    enum: [payload_too_large]
+              example:
+                error: payload_too_large
 components:
   securitySchemes:
     BearerAuth:
@@ -214,6 +244,11 @@ components:
           type: string
         data:
           nullable: true
+          description: >-
+            Optional error details. For execution errors (-32001), reason may
+            be not_found, permission_denied, failed_precondition, or invalid_argument.
+          example:
+            reason: not_found
     KmsKeyStorePutParams:
       type: object
       required:

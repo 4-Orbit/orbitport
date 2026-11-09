@@ -23,7 +23,7 @@ build:
 	@cargo build --release
 
 run: build
-	@./target/release/gateway
+	@cargo run --release --bin gateway
 
 docker-build:
 	@${CONTAINER_TOOL} build -f Dockerfile -t ${DOCKER_IMAGE}:${DOCKER_TAG} ..

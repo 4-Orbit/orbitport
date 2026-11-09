@@ -24,4 +24,3 @@ jobs:
         
       - name: Run cargo-audit
         run: cargo audit
-        working-directory: ./gateway

@@ -15,6 +15,10 @@ Protobuf definitions live at the top-level [`proto/`](proto/) directory, split i
 ## Repository layout
 
 ```
+Cargo.toml / Cargo.lock      Rust workspace and shared dependency lockfile
+crates/kms-api/             Public KMS types, schemas, capabilities and pure validation
+crates/mcp-core/            Shared MCP tool registry, visibility and protocol dispatch
+mcp/                       Local stdio MCP executable, calls gateway JSON-RPC with PAT
 gateway/                    Rust HTTP + JSON-RPC server (Warp + Tonic)
   src/services/             External service layer (ctrng, jrpc)
   src/plugins.rs            Plugin catalog / gRPC client wiring
@@ -43,7 +47,7 @@ beacons.yaml                Public beacon registry
 | Plugin | Role | Notes |
 | --- | --- | --- |
 | [`aptosorbital`](plugins/pkg/plugin/aptosorbital/README.md) | Fetches true random seeds from the Aptos Orbital satellite API | Wraps `api.aptosorbital.com` |
-| [`auth`](plugins/pkg/plugin/auth/README.md) | Fail-closed Auth0 JWT validation | Refuses to start without `AUTH0_DOMAIN`/`AUTH0_AUDIENCE` |
+| [`auth`](plugins/pkg/plugin/auth/README.md) | PAT-only customer validation; Auth0 for internal service tokens | Customer requests are rejected without PAT configuration |
 | [`authnoop`](plugins/pkg/plugin/authnoop/README.md) | Dev-only noop auth — accepts every token | Used in `dev.docker-compose.yaml` |
 | [`ipfs`](plugins/pkg/plugin/ipfs/README.md) | Kubo wrapper with LRU cache, size ceilings, and IPNS publishing | Backs the beacon |
 | [`masterseed`](plugins/pkg/plugin/masterseed/README.md) | Rolling pool of satellite seeds with offset-reserved derivation | Serves cTRNG to the gateway |
@@ -67,12 +71,39 @@ All env vars are prefixed `ORBITPORT_`. They can be supplied via `.env` at repo 
 | `ORBITPORT_MASTERSEED_PLUGIN` | — | gRPC URL of the masterseed plugin (required) |
 | `ORBITPORT_TRNG_PLUGIN` | — | gRPC URL of the cTRNG plugin (`aptosorbital`) |
 | `ORBITPORT_KMS_PLUGIN` | — | gRPC URL of the KMS plugin |
-| `ORBITPORT_ACCOUNT_PLUGIN` | — | gRPC URL of the account plugin. When set, JWT-authenticated routes hold credits before serving, settle on success, and release on downstream failure. |
+| `ORBITPORT_ACCOUNT_PLUGIN` | — | gRPC URL of the account plugin, required for customer requests. Hold resolves tenancy and credits; settle commits success and release refunds downstream failure. Unset fails customer calls closed with HTTP 503. |
 | `ORBITPORT_PATISSUER_PLUGIN` | — | gRPC URL of the patissuer plugin. When set, mounts `POST /internal/pat/issue` on the internal listener. The key set is published by the jwks plugin |
 | `ORBITPORT_RATE_LIMIT` | `40` | Max requests per token per window |
 | `ORBITPORT_RATE_LIMIT_WINDOW` | `10` | Rate-limit window in seconds (default ≈ 4 req/s per token) |
 | `ORBITPORT_BULK_MAX` | `10` | Max items per bulk TRNG request |
 | `ORBITPORT_RPC_BODY_MAX_BYTES` | `65536` | Max JSON-RPC request body size |
+
+### Local MCP Executable
+
+`kms-mcp` runs on the user's machine over stdio and sends tool calls to
+`/api/v1/rpc`. There is no hosted `/mcp` route in this release. Protocol requests
+are local and free. Sensitive tools require explicit `--allow` opt-ins; these
+protect against prompt injection and are not PAT authorization scopes.
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `ORBITPORT_PAT` | required | PAT sent to the gateway; never accepted as a command-line argument |
+| `ORBITPORT_URL` | `https://op.spacecomputer.io` | Gateway base URL; HTTPS required except loopback development |
+
+The optional `mcp/scripts/kms-mcp-from-file.sh` launcher reads a PAT file into
+`ORBITPORT_PAT`. Its `ORBITPORT_PAT_FILE` and `KMS_MCP_BIN` settings default to
+`$HOME/.config/spacecomputer-kms/prod.pat` and `$HOME/.local/bin/kms-mcp`.
+These are launcher settings, not native Rust CLI options. The advertised MCP
+server identity is `spacecomputer-kms`. See [client setup](mcp/CLIENT_SETUP.md)
+for the four supported client configuration examples and manual stdio tests.
+
+Public Rust KMS bindings are generated in `orbitport-kms-api` and re-exported by
+the gateway. Plugin gRPC bindings and execution remain gateway-owned. JSON
+precision and PascalCase fields are preserved. Manual API calls and MCP use
+the same PAT-only customer authentication; internal Auth0 service tokens
+remain separate. KMS tenancy always comes from the account Hold response.
+The root lockfile and workspace are used by all Rust builds, including Docker.
+See [local MCP documentation](mcp/README.md) for tools and configuration.
 
 ### Plugin dispatcher
 
@@ -88,18 +119,19 @@ Applies to every `op-plugin` container regardless of which plugin it dispatches 
 
 | Env var | Required | Purpose |
 | --- | --- | --- |
-| `ORBITPORT_AUTH0_DOMAIN` | yes | Auth0 tenant domain |
-| `ORBITPORT_AUTH0_AUDIENCE` | yes | Expected `aud` claim value |
+| `ORBITPORT_AUTH0_DOMAIN` | yes | Auth0 tenant domain for internal service-token validation |
+| `ORBITPORT_AUTH0_AUDIENCE` | yes | Expected `aud` for internal Auth0 service tokens; default audience for PATs |
 
-Optional PAT (Personal Access Token) dual-validation path — all three must be
-set together (partial config refuses startup); when unset the plugin behaves
-exactly as before:
+PAT issuer and JWKS-plugin configuration are required to accept customer
+requests. Partial PAT configuration refuses startup; with all PAT settings
+unset, the plugin starts but rejects every customer token. There is no Auth0
+customer fallback. Auth0 tokens remain valid only for internal service routes:
 
 | Env var | Required | Purpose |
 | --- | --- | --- |
-| `ORBITPORT_AUTH_PAT_ISS` | with PAT path | Expected `iss` of self-issued PATs; also the routing key (tokens with any other `iss` take the Auth0 path) |
+| `ORBITPORT_AUTH_PAT_ISS` | for customer requests | Expected `iss` of self-issued PATs; tokens with any other issuer are rejected on the customer API |
 | `ORBITPORT_AUTH_PAT_AUDIENCE` | no | Expected `aud` for PATs (defaults to `ORBITPORT_AUTH0_AUDIENCE`) |
-| `ORBITPORT_AUTH_PATISSUER_PLUGIN` | with PAT path | gRPC address of the patissuer plugin — source of the JWKS (5-min cache, refetch on unknown kid) |
+| `ORBITPORT_AUTH_PATISSUER_PLUGIN` | for customer requests | gRPC address of the patissuer plugin — source of the JWKS (5-min cache, refetch on unknown kid) |
 
 Optional service-token authorization for the internal PAT issuance listener:
 

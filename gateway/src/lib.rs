@@ -35,7 +35,7 @@ pub mod proto {
             tonic::include_proto!("ctrng");
         }
         pub mod kms {
-            tonic::include_proto!("kms");
+            pub use orbitport_kms_api::kms::*;
         }
         pub mod threshold {
             tonic::include_proto!("threshold");

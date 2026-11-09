@@ -22,14 +22,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Format
-      working-directory: ./gateway
-      run: cargo fmt -- --check
+      run: cargo fmt --all -- --check
     - name: Clippy
-      working-directory: ./gateway
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
     - name: Build
-      working-directory: ./gateway
-      run: cargo build --verbose
+      run: cargo build --workspace --locked --verbose
     - name: Run unit tests
       working-directory: ./gateway
       run: make test
+    - name: Test shared KMS and local MCP
+      run: cargo test --locked -p orbitport-kms-api -p kms-mcp-core -p kms-mcp

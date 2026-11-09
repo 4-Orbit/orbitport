@@ -9,14 +9,21 @@ protoc:
 test:
 	@cd plugins && make test
 	@cd gateway && make test
+	@cargo test --locked -p orbitport-kms-api -p kms-mcp-core -p kms-mcp
+
+mcp-build:
+	@cargo build --locked --release -p kms-mcp
+
+mcp-test:
+	@cargo test --locked -p orbitport-kms-api -p kms-mcp-core -p kms-mcp
 
 lint:
 	@cd plugins && make lint
-	@cd gateway && make lint
+	@cargo clippy --workspace --all-targets --locked -- -D warnings
 
 fmt:
 	@cd plugins && make fmt
-	@cd gateway && make fmt
+	@cargo fmt --all
 
 build: protoc
 	@cd plugins && make build
@@ -61,6 +68,8 @@ help:
 	@echo "  lint            Run linters"
 	@echo "  fmt             Format code"
 	@echo "  build           Build the project"
+	@echo "  mcp-build       Build the local MCP executable"
+	@echo "  mcp-test        Test shared KMS types and local MCP"
 	@echo "  e2e             Run end-to-end tests including setup"
 	@echo "  e2e-lazy        Run end-to-end tests without setup"
 	@echo "  e2e-all         Run all end-to-end tests"

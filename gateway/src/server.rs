@@ -292,6 +292,12 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
         };
         return Ok(warp::reply::with_status(warp::reply::json(&body), status));
     }
+    if err.find::<warp::reject::PayloadTooLarge>().is_some() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "payload_too_large"})),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ));
+    }
     if let Some(e) = err.find::<warp::filters::body::BodyDeserializeError>() {
         return Ok(warp::reply::with_status(
             warp::reply::json(
@@ -332,6 +338,7 @@ async fn handle_rpc(
     // no release.
     if let Err(e) = rpc_call.validate() {
         tracing::error!("RPC validation error [id={}]: {}", req_id, e);
+        // Clients display this validation reason; it must not echo request values.
         let res: JsonRpcResponse<()> =
             JsonRpcResponse::error(req_id, -32602, format!("Invalid request: {e}"));
         return Ok(warp::reply::json(&res));
@@ -358,7 +365,7 @@ async fn handle_rpc(
             tracing::warn!("RPC execution error [id={}]: {}", req_id, e);
             account_release(account_client, &ledger_id).await;
 
-            let res: JsonRpcResponse<()> = JsonRpcResponse::error(req_id, -32001, e.to_string());
+            let res: JsonRpcResponse<()> = JsonRpcResponse::execution_error(req_id, &e);
 
             Ok(warp::reply::json(&res))
         }
@@ -571,6 +578,62 @@ fn new_req_id() -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[tokio::test]
+    async fn oversized_body_returns_413_before_parsing() {
+        let route = warp::post()
+            .and(warp::body::content_length_limit(2))
+            .and(warp::body::json::<serde_json::Value>())
+            .map(|body| warp::reply::json(&body))
+            .recover(handle_rejection);
+        let at_limit = warp::test::request()
+            .method("POST")
+            .header("content-type", "application/json")
+            .body("{}")
+            .reply(&route)
+            .await;
+        assert_eq!(at_limit.status(), StatusCode::OK);
+
+        let over_limit = warp::test::request()
+            .method("POST")
+            .header("content-type", "application/json")
+            .body("xxx")
+            .reply(&route)
+            .await;
+        assert_eq!(over_limit.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body: serde_json::Value = serde_json::from_slice(over_limit.body()).unwrap();
+        assert_eq!(body, serde_json::json!({"error": "payload_too_large"}));
+    }
+
+    #[tokio::test]
+    async fn invalid_credential_rejection_maps_to_401_invalid_credential() {
+        let route = warp::any()
+            .and_then(|| async {
+                Err::<warp::reply::Json, Rejection>(warp::reject::custom(
+                    GatewayError::InvalidCredential,
+                ))
+            })
+            .recover(handle_rejection);
+        let reply = warp::test::request().reply(&route).await;
+        assert_eq!(reply.status(), StatusCode::UNAUTHORIZED);
+        let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
+        assert_eq!(body["error"], "invalid_credential");
+    }
+
+    #[tokio::test]
+    async fn inactive_account_rejection_maps_to_403_account_inactive() {
+        let route = warp::any()
+            .and_then(|| async {
+                Err::<warp::reply::Json, Rejection>(warp::reject::custom(
+                    GatewayError::AccountInactive,
+                ))
+            })
+            .recover(handle_rejection);
+        let reply = warp::test::request().reply(&route).await;
+        assert_eq!(reply.status(), StatusCode::FORBIDDEN);
+        let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
+        assert_eq!(body, serde_json::json!({"error":"account_inactive"}));
+    }
 
     #[tokio::test]
     async fn pat_expired_rejection_maps_to_401_token_expired() {

@@ -36,10 +36,15 @@ memory and refreshed in the background ~5 min before expiry.
 - **Initial M2M token fetch fails**: plugin refuses to start. A misconfigured
   M2M app or wrong audience can't silently no-op.
 - **Dashboard returns 422 `INSUFFICIENT_CREDITS`**: `Hold` returns gRPC
-  `FailedPrecondition` with `HoldResponse.Error = "insufficient_credits"`. The
+  `FailedPrecondition` with status message `insufficient_credits`. The
   gateway maps this to HTTP 402.
 - **Dashboard 5xx or unreachable**: `Hold` returns gRPC `Unavailable`. The
   gateway maps this to HTTP 503 (fail-closed).
+- **Dashboard 403 with `code: ACCOUNT_INACTIVE`**: `Hold` returns
+  gRPC `PermissionDenied` with status message `account_inactive`, matching
+  [PR #161](https://github.com/spacecomputer-io/orbitport/pull/161).
+  The gateway returns HTTP 403 with `error: account_inactive`. A generic 403
+  is not suspension and remains a backend/service authorization failure.
 - **`Settle` failure**: returned as `Unavailable`. The gateway logs and ignores.
   The hold stays unresolved, so the dashboard sweeper refunds it as an orphan —
   the request goes uncharged (revenue loss), never overcharged.
@@ -50,9 +55,11 @@ memory and refreshed in the background ~5 min before expiry.
 ## Dev tip
 
 The plugin requires a reachable dashboard backend plus a real Auth0 M2M app.
-For local development without a dashboard, leave `ORBITPORT_ACCOUNT_PLUGIN`
-unset on the gateway — the credit-gate filter becomes a no-op and JWT
-authenticated routes run normally.
+For local development without a dashboard, run the `accountnoop` plugin and
+point `ORBITPORT_ACCOUNT_PLUGIN` at it, as the dev compose stack does. The
+gateway requires an account plugin even with noop authentication; leaving it
+unset fails customer requests with HTTP 503 rather than bypassing holds or
+tenant resolution. Noop plugins are development-only.
 
 For local dev against a non-TLS dashboard (e.g. `http://localhost:3000`),
 set `ORBITPORT_ACCOUNT_ALLOW_INSECURE=true`. The plugin refuses to start
@@ -60,6 +67,10 @@ otherwise — the Auth0 M2M bearer would leak in plaintext. Never enable in
 production.
 
 ## Operation tags
+
+The local stdio MCP executable uses the same JSON-RPC endpoint and therefore
+the same validation, hold tags and pricing below. It neither calls this plugin
+directly nor creates an additional hold.
 
 The gateway parses and validates a JSON-RPC request before asking the account
 plugin to hold credits. Invalid or malformed requests never create a hold.

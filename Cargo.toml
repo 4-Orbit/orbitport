@@ -1,0 +1,4 @@
+[workspace]
+members = ["gateway", "crates/kms-api", "crates/mcp-core", "mcp"]
+default-members = ["gateway"]
+resolver = "3"

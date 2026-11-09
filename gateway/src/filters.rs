@@ -493,6 +493,74 @@ async fn rate_limit(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::proto::plugins::auth::{
+        ServiceTokenValidationResponse,
+        auth_plugin_server::{AuthPlugin, AuthPluginServer},
+    };
+
+    struct RejectingAuthPlugin(tonic::Status);
+
+    #[tonic::async_trait]
+    impl AuthPlugin for RejectingAuthPlugin {
+        async fn validate_token(
+            &self,
+            _req: tonic::Request<TokenValidationRequest>,
+        ) -> Result<tonic::Response<TokenValidationResponse>, tonic::Status> {
+            Err(self.0.clone())
+        }
+
+        async fn validate_service_token(
+            &self,
+            _req: tonic::Request<ServiceTokenValidationRequest>,
+        ) -> Result<tonic::Response<ServiceTokenValidationResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used by customer auth"))
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_plugin_status_keeps_invalid_expired_and_unavailable_distinct() {
+        for (status, expected) in [
+            (
+                tonic::Status::unauthenticated("invalid_credential: not a personal access token"),
+                GatewayError::InvalidCredential,
+            ),
+            (
+                tonic::Status::unauthenticated("pat_expired: token is expired"),
+                GatewayError::PatExpired,
+            ),
+            (
+                tonic::Status::unavailable("JWKS unavailable"),
+                GatewayError::AuthPluginConnectionError("unavailable".to_string()),
+            ),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                tonic::transport::Server::builder()
+                    .add_service(AuthPluginServer::new(RejectingAuthPlugin(status)))
+                    .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                    .await
+                    .unwrap();
+            });
+            let client = AuthPluginClient::connect(format!("http://{address}"))
+                .await
+                .unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_static("Bearer fixture-token"),
+            );
+            let rejection = authorize((headers, client)).await.unwrap_err();
+            server.abort();
+
+            let actual = rejection.find::<GatewayError>().unwrap();
+            assert_eq!(
+                std::mem::discriminant(actual),
+                std::mem::discriminant(&expected),
+                "unexpected auth error: {actual}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_jwt_from_header() {
