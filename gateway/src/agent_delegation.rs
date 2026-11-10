@@ -14,6 +14,17 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
+use tonic::transport::Channel;
+use warp::{
+    Filter, Rejection, Reply,
+    http::{StatusCode, header::CACHE_CONTROL},
+    reply::Response,
+};
+
+use crate::{
+    filters::{ServiceAuthContext, with_service_auth},
+    proto::plugins::auth::auth_plugin_client::AuthPluginClient,
+};
 
 pub const MAX_TTL_SECONDS: u64 = 900;
 const MAX_ACTIVE_CREDENTIALS: usize = 10_000;
@@ -206,6 +217,69 @@ fn token_digest(token: &str) -> [u8; 32] {
 
 fn prune(grants: &mut HashMap<[u8; 32], Grant>, now: i64) {
     grants.retain(|_, grant| now < grant.expires_at);
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IssueCredentialBody {
+    account_id: String,
+    agent_id: String,
+    action: String,
+    resource: String,
+    ttl_seconds: u64,
+}
+
+/// Internal-only issuance endpoint. The service auth plugin verifies both the
+/// M2M client allowlist and the `agent:delegate` scope before this handler runs.
+pub fn issue_route(
+    store: AgentCredentialStore,
+    auth_client: AuthPluginClient<Channel>,
+) -> impl Filter<Extract = (Response,), Error = Rejection> + Clone {
+    warp::path!("internal" / "agent" / "credentials")
+        .and(warp::post())
+        .and(with_service_auth(auth_client, &["agent:delegate"]))
+        .and(warp::body::content_length_limit(4096))
+        .and(warp::body::json())
+        .and(warp::any().map(move || store.clone()))
+        .and_then(handle_issue)
+}
+
+async fn handle_issue(
+    service: ServiceAuthContext,
+    body: IssueCredentialBody,
+    store: AgentCredentialStore,
+) -> Result<Response, Rejection> {
+    let scope = AgentScope {
+        account_id: body.account_id,
+        agent_id: body.agent_id,
+        action: body.action,
+        resource: body.resource,
+    };
+    let (status, payload) = match store.issue(scope, body.ttl_seconds) {
+        Ok(issued) => {
+            tracing::info!(issuer_client_id = %service.client_id, "Issued delegated agent credential");
+            (StatusCode::CREATED, serde_json::json!(issued))
+        }
+        Err(DelegationError::InvalidScope | DelegationError::InvalidLifetime) => (
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"error": "invalid_delegation_request"}),
+        ),
+        Err(DelegationError::Capacity) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({"error": "delegation_capacity_reached"}),
+        ),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({"error": "delegation_unavailable"}),
+        ),
+    };
+    let mut response =
+        warp::reply::with_status(warp::reply::json(&payload), status).into_response();
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        "no-store".parse().expect("valid static header"),
+    );
+    Ok(response)
 }
 
 #[cfg(test)]

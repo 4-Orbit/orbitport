@@ -2,7 +2,7 @@
 
 This is the first gateway-side piece of the UCSB capstone branch. It is a
 process-local development implementation, not a production issuer or an
-Orbitport agent endpoint. The upstream agent identity and policy interfaces
+agent operation endpoint. The upstream agent identity and policy interfaces
 still need to be connected.
 
 ## Grant shape
@@ -16,7 +16,51 @@ still need to be connected.
 | `action` | One permitted operation | `github:create-issue` |
 | `resource` | One logical target | `4-Orbit/test-repo` |
 
-The trusted issuer calls `AgentCredentialStore::issue(scope, ttl_seconds)`.
+When `ORBITPORT_AGENT_DELEGATION_ENABLED=true`, the gateway mounts
+`POST /internal/agent/credentials` on the internal listener. The route requires
+an allowlisted Auth0 M2M service token with `agent:delegate` scope through
+Orbitport's existing `ValidateServiceToken` path. It accepts:
+
+```json
+{
+  "accountId": "test-account",
+  "agentId": "developer-agent",
+  "action": "github:create-issue",
+  "resource": "4-Orbit/test-repo",
+  "ttlSeconds": 60
+}
+```
+
+On success it returns `201` with `token` and `expiresAt`, and
+`Cache-Control: no-store`. The trusted issuer calls
+`AgentCredentialStore::issue(scope, ttl_seconds)` through this route.
+The route is disabled by default. In the local dev compose stack, set
+`ORBITPORT_AGENT_DELEGATION_ENABLED=true` before starting the gateway; the
+internal listener is bound to `127.0.0.1:8090` on the host. That stack uses
+`authnoop`, which accepts any service token, so its credentials and outcomes
+are development evidence only. Production must use the real auth plugin with
+an allowlisted M2M client carrying `agent:delegate`.
+
+To verify the code without Docker, run from the repository root:
+
+```sh
+cargo test -p gateway agent_delegation::tests --lib --locked
+cargo test -p gateway --test agent_delegation_route --locked
+```
+
+With the dev compose stack running and the feature enabled, a local issuance
+smoke test is:
+
+```sh
+curl -fsS http://127.0.0.1:8090/internal/agent/credentials \
+  -H 'Authorization: Bearer dev-only-service-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"accountId":"test-account","agentId":"developer-agent","action":"github:create-issue","resource":"4-Orbit/test-repo","ttlSeconds":60}' \
+  | jq '{tokenLength:(.token|length),expiresAt}'
+```
+
+The expected token length is 64. This only tests issuance; the GitHub action
+route must still call `authenticate()` and then the policy and audit services.
 The lifetime must be 1–900 seconds. The returned credential is an opaque,
 random bearer token; only its SHA-256 digest and the grant are stored. The raw
 token must be returned once over a protected channel and kept out of logs and
