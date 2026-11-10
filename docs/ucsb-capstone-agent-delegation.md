@@ -78,6 +78,17 @@ The handler must record the resulting request and decision through the agreed
 audit interface. Credential rejection and policy denial must make no GitHub or
 KMS call.
 
+`gateway::agent_request_auth::with_agent_request_auth(store.clone())` is the
+gateway filter for the next agent-facing operation route. It accepts a bearer
+credential and JSON with `action`, `resource`, and optional operation `input`.
+It rejects top-level `accountId` and `agentId` fields and gives the handler an
+`AuthenticatedAgentRequest` whose account and agent come from the stored grant.
+The filter is not mounted as a public route yet; the GitHub operation will
+attach it to its endpoint, run Cedar/SpaceComputer policy enforcement, and
+then call GitHub only on ALLOW. The filter returns `401` for missing, invalid,
+expired, or out-of-scope credentials and `503` if the credential store's
+trusted clock or lock is unavailable.
+
 ## Integration boundary
 
 The GitHub operation and frontend can use this contract now. The pending
