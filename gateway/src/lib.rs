@@ -49,6 +49,7 @@ pub mod logging;
 pub mod metrics;
 
 pub mod auth;
+pub mod agent_delegation;
 pub mod filters;
 pub mod plugins;
 pub mod server;
