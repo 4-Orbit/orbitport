@@ -5,7 +5,7 @@ use std::sync::{
 
 use gateway::{
     agent_delegation::{AgentCredentialStore, AgentScope, Clock, DelegationError},
-    agent_request_auth::{AuthenticatedAgentRequest, with_agent_request_auth},
+    agent_request_auth::{AuthenticatedAgentRequest, preview_route, with_agent_request_auth},
     types::GatewayError,
 };
 use warp::{Filter, http::StatusCode};
@@ -128,4 +128,49 @@ async fn agent_identity_comes_from_token_and_rejected_requests_never_reach_handl
         Some(GatewayError::InvalidCredential)
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn preview_uses_the_issued_store_and_reports_no_policy_or_operation() {
+    let clock = Arc::new(FixedClock(AtomicI64::new(1_700_000_000)));
+    let store = AgentCredentialStore::new(clock.clone());
+    let scope = AgentScope {
+        account_id: "test-account".into(),
+        agent_id: "developer-agent".into(),
+        action: "github:create-issue".into(),
+        resource: "4-Orbit/test-repo".into(),
+    };
+    let issued = store.issue(scope.clone(), 60).unwrap();
+    let route = preview_route(store);
+    let path = "/api/v1/agent/requests/preview";
+    let body = operation_body(&scope.action, &scope.resource);
+
+    let success = warp::test::request()
+        .method("POST")
+        .path(path)
+        .header("authorization", format!("Bearer {}", issued.token))
+        .json(&body)
+        .reply(&route)
+        .await;
+    assert_eq!(success.status(), StatusCode::OK);
+    assert_eq!(success.headers()["cache-control"], "no-store");
+    let response: serde_json::Value = serde_json::from_slice(success.body()).unwrap();
+    assert_eq!(response["accountId"], scope.account_id);
+    assert_eq!(response["agentId"], scope.agent_id);
+    assert_eq!(response["credentialValid"], true);
+    assert_eq!(response["policyEvaluated"], false);
+    assert_eq!(response["operationPerformed"], false);
+    assert!(response.get("input").is_none());
+
+    clock.0.store(1_700_000_060, Ordering::SeqCst);
+    assert!(
+        warp::test::request()
+            .method("POST")
+            .path(path)
+            .header("authorization", format!("Bearer {}", issued.token))
+            .json(&body)
+            .filter(&route)
+            .await
+            .is_err()
+    );
 }

@@ -1,9 +1,7 @@
 # UCSB capstone: delegated agent credential contract
 
-This is the first gateway-side piece of the UCSB capstone branch. It is a
-process-local development implementation, not a production issuer or an
-agent operation endpoint. The upstream agent identity and policy interfaces
-still need to be connected.
+This is a process-local development implementation. The upstream agent
+identity and policy interfaces still need to be connected.
 
 ## Grant shape
 
@@ -59,8 +57,21 @@ curl -fsS http://127.0.0.1:8090/internal/agent/credentials \
   | jq '{tokenLength:(.token|length),expiresAt}'
 ```
 
-The expected token length is 64. This only tests issuance; the GitHub action
-route must still call `authenticate()` and then the policy and audit services.
+The expected token length is 64. To exercise the issued credential on the
+public gateway listener, call the read-only preview endpoint before expiry:
+
+```sh
+curl -fsS http://127.0.0.1:8080/api/v1/agent/requests/preview \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"github:create-issue","resource":"4-Orbit/test-repo"}'
+```
+
+Set `AGENT_TOKEN` to the `token` returned by issuance. The response confirms
+the stored account, agent, action, and resource and reports
+`policyEvaluated:false` and `operationPerformed:false`. An invalid, expired,
+or out-of-scope credential returns `401`. This endpoint does not invoke Cedar,
+GitHub, or KMS; the real action route must still enforce policy and audit.
 The lifetime must be 1–900 seconds. The returned credential is an opaque,
 random bearer token; only its SHA-256 digest and the grant are stored. The raw
 token must be returned once over a protected channel and kept out of logs and
@@ -83,9 +94,10 @@ gateway filter for the next agent-facing operation route. It accepts a bearer
 credential and JSON with `action`, `resource`, and optional operation `input`.
 It rejects top-level `accountId` and `agentId` fields and gives the handler an
 `AuthenticatedAgentRequest` whose account and agent come from the stored grant.
-The filter is not mounted as a public route yet; the GitHub operation will
-attach it to its endpoint, run Cedar/SpaceComputer policy enforcement, and
-then call GitHub only on ALLOW. The filter returns `401` for missing, invalid,
+The read-only preview endpoint mounts this filter on the public listener when
+delegation is enabled. The GitHub operation will also attach it to its endpoint,
+run Cedar/SpaceComputer policy enforcement, and then call GitHub only on ALLOW.
+The filter returns `401` for missing, invalid,
 expired, or out-of-scope credentials and `503` if the credential store's
 trusted clock or lock is unavailable.
 

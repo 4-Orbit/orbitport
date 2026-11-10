@@ -7,9 +7,10 @@
 use serde::Deserialize;
 use serde_json::Value;
 use warp::{
-    Filter, Rejection,
+    Filter, Rejection, Reply,
     filters::header::headers_cloned,
-    http::header::{AUTHORIZATION, HeaderMap, HeaderValue},
+    http::header::{AUTHORIZATION, CACHE_CONTROL, HeaderMap, HeaderValue},
+    reply::Response,
 };
 
 use crate::{
@@ -33,6 +34,33 @@ pub struct AuthenticatedAgentRequest {
     pub scope: AgentScope,
     /// Operation-specific data; the handler must validate it before use.
     pub input: Option<Value>,
+}
+
+/// Public, read-only endpoint for exercising delegated credential validation.
+/// It does not evaluate Cedar policy or perform a protected operation.
+pub fn preview_route(
+    store: AgentCredentialStore,
+) -> impl Filter<Extract = (Response,), Error = Rejection> + Clone {
+    warp::path!("api" / "v1" / "agent" / "requests" / "preview")
+        .and(warp::post())
+        .and(with_agent_request_auth(store))
+        .map(|request: AuthenticatedAgentRequest| {
+            let mut response = warp::reply::json(&serde_json::json!({
+                "credentialValid": true,
+                "accountId": request.scope.account_id,
+                "agentId": request.scope.agent_id,
+                "action": request.scope.action,
+                "resource": request.scope.resource,
+                "policyEvaluated": false,
+                "operationPerformed": false
+            }))
+            .into_response();
+            response.headers_mut().insert(
+                CACHE_CONTROL,
+                "no-store".parse().expect("valid static header"),
+            );
+            response
+        })
 }
 
 /// Composable filter for an agent operation route. A successful extraction
