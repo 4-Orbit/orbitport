@@ -529,6 +529,7 @@ services:
       - ORBITPORT_ACCOUNT_PLUGIN=http://plugin-account:50005
       - ORBITPORT_PATISSUER_PLUGIN=http://plugin-patissuer:50006
       - ORBITPORT_INTERNAL_PORT=8081
+      - ORBITPORT_AGENT_DELEGATION_ENABLED=${ORBITPORT_AGENT_DELEGATION_ENABLED:-false}
     ports:
       - 8080:8080
       # The no-op auth plugin is development-only, so never expose issuance

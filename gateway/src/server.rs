@@ -8,6 +8,7 @@ use crate::metrics;
 use crate::service_manager::ServiceManager;
 use crate::types::{EncryptionKey, GatewayError, ServiceRequest};
 
+use crate::agent_delegation::{self, AgentCredentialStore};
 use crate::auth::pat_issue_route;
 use crate::filters::{
     AuthContext, AuthContextWithHold, RateLimiter, account_hold, account_release, account_settle,
@@ -162,8 +163,23 @@ pub async fn start(
     // gateway routes and meters the API rather than republishing another
     // service's keys.
     let mut internal_task = None;
-    if let Some(client) = patissuer_client {
-        let internal = internal_routes(client, service_manager.get_auth_client());
+    let agent_delegation_enabled =
+        std::env::var("ORBITPORT_AGENT_DELEGATION_ENABLED").is_ok_and(|value| value == "true");
+    let agent_store = agent_delegation_enabled.then(AgentCredentialStore::default);
+    let auth_client = service_manager.get_auth_client();
+    let internal: Option<BoxedFilter<(Response,)>> = match (patissuer_client, agent_store) {
+        (Some(client), Some(store)) => Some(
+            pat_issue_route(client, auth_client.clone())
+                .or(agent_delegation::issue_route(store, auth_client))
+                .unify()
+                .boxed(),
+        ),
+        (Some(client), None) => Some(pat_issue_route(client, auth_client).boxed()),
+        (None, Some(store)) => Some(agent_delegation::issue_route(store, auth_client).boxed()),
+        (None, None) => None,
+    };
+    if let Some(internal) = internal {
+        let internal = internal.recover(handle_rejection);
         tracing::info!("Starting internal http server on: 0.0.0.0:{internal_port}");
         let server = warp::serve(internal)
             .bind(([0, 0, 0, 0], internal_port))

@@ -10,7 +10,7 @@ use gateway::{logging, plugins, server, service_manager, types::GatewayError};
 struct Args {
     #[clap(short = 'p', long, env = "ORBITPORT_HTTP_PORT", default_value = "8080")]
     http_port: u16,
-    /// Port for internal-only routes (PAT issuance). Must not be published by
+    /// Port for internal-only routes (PAT and agent credential issuance). Must not be published by
     /// any load balancer or Ingress-backed Service.
     #[clap(long, env = "ORBITPORT_INTERNAL_PORT", default_value = "8081")]
     internal_port: u16,
