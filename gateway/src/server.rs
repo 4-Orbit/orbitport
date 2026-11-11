@@ -282,6 +282,10 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
                     "message": "Unknown or revoked credential"
                 }),
             ),
+            GatewayError::DelegationUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                serde_json::json!({"error": "delegation_unavailable"}),
+            ),
             GatewayError::AccountInactive => (
                 StatusCode::FORBIDDEN,
                 serde_json::json!({"error": "account_inactive"}),
@@ -634,6 +638,21 @@ mod test {
         assert_eq!(reply.status(), StatusCode::UNAUTHORIZED);
         let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
         assert_eq!(body["error"], "invalid_credential");
+    }
+
+    #[tokio::test]
+    async fn delegation_unavailable_rejection_maps_to_503() {
+        let route = warp::any()
+            .and_then(|| async {
+                Err::<warp::reply::Json, Rejection>(warp::reject::custom(
+                    GatewayError::DelegationUnavailable,
+                ))
+            })
+            .recover(handle_rejection);
+        let reply = warp::test::request().reply(&route).await;
+        assert_eq!(reply.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
+        assert_eq!(body, serde_json::json!({"error": "delegation_unavailable"}));
     }
 
     #[tokio::test]
