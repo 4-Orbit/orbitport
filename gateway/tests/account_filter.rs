@@ -177,6 +177,7 @@ fn synthetic_auth_claiming(
                 client_id,
                 jti,
                 kms_tenant,
+                agent_id: String::new(),
             })
         }
     })
@@ -409,6 +410,7 @@ async fn account_hold_forwards_dynamic_operation_tag() {
         client_id: "acct-1".to_string(),
         jti: "pat-jti-1".to_string(),
         kms_tenant: String::new(),
+        agent_id: String::new(),
     };
     let ctx = account_hold(auth, Some(client), 1, &req.call.operation())
         .await

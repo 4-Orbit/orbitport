@@ -6,6 +6,45 @@ Sources compared: `4-Orbit/4orbit@f2de01d` (Prototype 1, GUI v1, docs) and this 
 
 ---
 
+## Status: 2026-11-10, branch `4orbit-migration` (uncommitted)
+
+Milestones M1–M6 are implemented and tested. M7 is done except CI wiring for the 4Orbit e2e job (see "Remaining"). The current architecture is in [`docs/4orbit/README.md`](docs/4orbit/README.md), and how to run and test it is in [`DEPLOY.md`](DEPLOY.md).
+
+| Milestone | State | Evidence |
+|---|---|---|
+| M1 engine (`plugins/pkg/core/authz`) | Done | `go test ./pkg/core/authz`: all 112 matrix cells, the US5 boundary, tenant fence, agent ban on policy administration, fail-closed handling, strict validation, audit redaction |
+| M2 identity (`agent_id` through patissuer, auth, authnoop, gateway) | Done | Go auth and patissuer tests (including a forged-signature case); Rust `tests/agent_identity.rs`; e2e rejects a forged `agent_id` |
+| M3 enforcement (every KMS RPC guarded) | Done | `kms/agent_authz_test.go`: a DENY makes zero OpenBao calls; shadow mode; policy plugin down; tag policies. All pre-existing KMS tests unchanged and passing |
+| M4 policy plugin and gateway `policy.*` | Done | `policy/plugin_test.go`, including a fake OpenBao KV that enforces CAS and the string limit; e2e covers activate, the test gate, live enforcement and rollback |
+| M5/M6 console and playground | Done | `console/test` (BFF allowlist, Host check, token never returned); every tab checked in a browser against the live stack |
+| M7 docs and tooling | Mostly done | DEPLOY.md, `docs/4orbit/`, `4orbit.compose.yaml`, seed, Makefile targets, `make 4orbit-e2e` (47/47), console CI workflow |
+
+### Where the implementation differs from the plan below
+
+- **Identity transport:** gRPC metadata (`x-orbitport-agent-id`, `x-orbitport-jti-hash`) instead of a `Principal` field in every KMS proto message (D-024).
+- **Policy plugin API:** one allowlisted `Call(method, params_json)` RPC plus `GetActive` and `RecordAudit`, instead of a typed RPC per method. The gateway forwards `policy.*` without per-method Rust types.
+- **Policy action names:** `policy.Read`, `Write`, `Activate`, `Simulate` and `IssueAgentToken` instead of `policy.Get`/`Put`. Policy administration is authorized against the platform policy only (D-031).
+- **Key-store authorizer:** kept as a second layer instead of being folded in (D-032).
+- **New `kms.ListKeys`:** an internal KMS RPC, exposed only as `policy.ListKeys` (the playground needed a key list; open question 5).
+- **Storage:** versions and test suites are stored as one JSON-encoded string, because OpenBao rejects KV documents with too many strings.
+- **Images:** a `RUNTIME_IMAGE` build argument, with the `4orbit-*` targets defaulting to public distroless images, because `dhi.io` needs a login (D-033).
+- **Seed:** a Go command (`plugins/cmd/fourorbit-seed`) instead of a shell script, so it needs no host tools beyond Docker.
+- **`authnoop`:** accepts the bearer `agent:<id>` so agents can be tested on the plain dev stack (open question 4, decided).
+
+### Remaining
+
+- [ ] CI: add a job to `.github/workflows/e2e.yml` that runs `make 4orbit-up && make 4orbit-e2e` (it needs the image-runtime decision for CI: `dhi.io` login or public images).
+- [ ] Persist audit beyond memory (set `ORBITPORT_POLICY_AUDIT_DIR` on a writable volume, or a real store; open question 6).
+- [ ] Agent PAT revocation on the real dashboard path: agent PATs have no dashboard `jti` row (open question 2).
+- [ ] A tenant setting that requires `agent_id` for KMS calls, so an account PAT handed to an agent can't skip agent policies.
+- [ ] Wire the delegated-credential store (`gateway/src/agent_delegation.rs`) into an operation route that also calls `authz.Evaluate`.
+- [ ] `examples/kms/ai-agents/4orbit-roles` demo (§4.6).
+- [ ] Console: export and import of a policy bundle as files (today: copy the text, or use `policy.GetVersion`).
+- [ ] Ethereum, PQC and threshold policy testing once the private OpenBao plugin repos are available (open question 7).
+- [ ] Mentor review of open questions 1–3 below.
+
+---
+
 ## 1. Where things stand
 
 ### What 4Orbit has (external gate, TypeScript)

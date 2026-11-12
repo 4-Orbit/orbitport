@@ -26,7 +26,7 @@ run: build
 	@cargo run --release --bin gateway
 
 docker-build:
-	@${CONTAINER_TOOL} build -f Dockerfile -t ${DOCKER_IMAGE}:${DOCKER_TAG} ..
+	@${CONTAINER_TOOL} build $(if ${RUNTIME_IMAGE},--build-arg RUNTIME_IMAGE=${RUNTIME_IMAGE}) -f Dockerfile -t ${DOCKER_IMAGE}:${DOCKER_TAG} ..
 
 docker-clean:
 	@${CONTAINER_TOOL} rm -f ${DOCKER_CONTAINER_NAME} 2> /dev/null

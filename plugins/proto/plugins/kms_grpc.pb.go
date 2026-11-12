@@ -38,6 +38,7 @@ const (
 	KmsPlugin_KeyStoreGet_FullMethodName     = "/kmsapi.KmsPlugin/KeyStoreGet"
 	KmsPlugin_KeyStoreList_FullMethodName    = "/kmsapi.KmsPlugin/KeyStoreList"
 	KmsPlugin_KeyStoreDelete_FullMethodName  = "/kmsapi.KmsPlugin/KeyStoreDelete"
+	KmsPlugin_ListKeys_FullMethodName        = "/kmsapi.KmsPlugin/ListKeys"
 )
 
 // KmsPluginClient is the client API for KmsPlugin service.
@@ -58,6 +59,9 @@ type KmsPluginClient interface {
 	KeyStoreGet(ctx context.Context, in *KeyStoreGetRequest, opts ...grpc.CallOption) (*KeyStoreGetResponse, error)
 	KeyStoreList(ctx context.Context, in *KeyStoreListRequest, opts ...grpc.CallOption) (*KeyStoreListResponse, error)
 	KeyStoreDelete(ctx context.Context, in *KeyStoreDeleteRequest, opts ...grpc.CallOption) (*KeyStoreDeleteResponse, error)
+	// Lists the tenant's key metadata for the policy playground. Not part of the
+	// public JSON-RPC API; the gateway exposes it as policy.ListKeys.
+	ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error)
 }
 
 type kmsPluginClient struct {
@@ -208,6 +212,16 @@ func (c *kmsPluginClient) KeyStoreDelete(ctx context.Context, in *KeyStoreDelete
 	return out, nil
 }
 
+func (c *kmsPluginClient) ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListKeysResponse)
+	err := c.cc.Invoke(ctx, KmsPlugin_ListKeys_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KmsPluginServer is the server API for KmsPlugin service.
 // All implementations must embed UnimplementedKmsPluginServer
 // for forward compatibility.
@@ -226,6 +240,9 @@ type KmsPluginServer interface {
 	KeyStoreGet(context.Context, *KeyStoreGetRequest) (*KeyStoreGetResponse, error)
 	KeyStoreList(context.Context, *KeyStoreListRequest) (*KeyStoreListResponse, error)
 	KeyStoreDelete(context.Context, *KeyStoreDeleteRequest) (*KeyStoreDeleteResponse, error)
+	// Lists the tenant's key metadata for the policy playground. Not part of the
+	// public JSON-RPC API; the gateway exposes it as policy.ListKeys.
+	ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error)
 	mustEmbedUnimplementedKmsPluginServer()
 }
 
@@ -277,6 +294,9 @@ func (UnimplementedKmsPluginServer) KeyStoreList(context.Context, *KeyStoreListR
 }
 func (UnimplementedKmsPluginServer) KeyStoreDelete(context.Context, *KeyStoreDeleteRequest) (*KeyStoreDeleteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method KeyStoreDelete not implemented")
+}
+func (UnimplementedKmsPluginServer) ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListKeys not implemented")
 }
 func (UnimplementedKmsPluginServer) mustEmbedUnimplementedKmsPluginServer() {}
 func (UnimplementedKmsPluginServer) testEmbeddedByValue()                   {}
@@ -551,6 +571,24 @@ func _KmsPlugin_KeyStoreDelete_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KmsPlugin_ListKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KmsPluginServer).ListKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KmsPlugin_ListKeys_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KmsPluginServer).ListKeys(ctx, req.(*ListKeysRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KmsPlugin_ServiceDesc is the grpc.ServiceDesc for KmsPlugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -613,6 +651,10 @@ var KmsPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "KeyStoreDelete",
 			Handler:    _KmsPlugin_KeyStoreDelete_Handler,
+		},
+		{
+			MethodName: "ListKeys",
+			Handler:    _KmsPlugin_ListKeys_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

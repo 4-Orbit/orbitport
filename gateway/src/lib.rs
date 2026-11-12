@@ -28,6 +28,9 @@ pub mod proto {
         pub mod threshold {
             tonic::include_proto!("thresholdapi");
         }
+        pub mod policy {
+            tonic::include_proto!("policy");
+        }
     }
 
     pub mod services {
@@ -48,8 +51,9 @@ pub mod types;
 pub mod logging;
 pub mod metrics;
 
-pub mod auth;
 pub mod agent_delegation;
+pub mod auth;
+pub mod caller;
 pub mod filters;
 pub mod plugins;
 pub mod server;

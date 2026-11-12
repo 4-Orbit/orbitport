@@ -82,6 +82,10 @@ curl -X POST http://localhost:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","id":1,"method":"ctrng.Get","params":{"chunks":2}}'
 ```
 
+## 4Orbit: per-agent policy and the policy playground
+
+This fork adds agent-level Cedar authorization to every KMS call, a versioned per-tenant policy store, and an operator console with a policy playground (editor, simulator, access matrix, test suites, versions and rollback, short-lived agent tokens). Start it with `make 4orbit-up`, then open http://127.0.0.1:4317. See [`DEPLOY.md`](DEPLOY.md) for setup and testing, [`docs/4orbit`](docs/4orbit/README.md) for the design, and [`TODO.md`](TODO.md) for status.
+
 ## Local MCP Server
 
 Agents can use KMS through the local `kms-mcp` stdio executable, which calls the existing

@@ -19,8 +19,12 @@ type patissuerConfig struct {
 	Signer   string
 	// Empty = generate an ephemeral key at startup, invalidating every
 	// outstanding PAT on restart.
-	LocalKeyPEM     string
-	MaxTTLDays      int
+	LocalKeyPEM string
+	MaxTTLDays  int
+	// Agent PATs (agent_id set) are short-lived: their lifetime must fall
+	// within [AgentMinTTLSecs, AgentMaxTTLSecs].
+	AgentMinTTLSecs int
+	AgentMaxTTLSecs int
 	OpenBaoProxyURL string
 	TransitMount    string
 	TransitKey      string
@@ -40,6 +44,8 @@ func readFromEnv() *patissuerConfig {
 		Signer:          trimValue(viper.GetString("PATISSUER_SIGNER")),
 		LocalKeyPEM:     viper.GetString("PATISSUER_LOCAL_KEY_PEM"),
 		MaxTTLDays:      viper.GetInt("PATISSUER_MAX_TTL_DAYS"),
+		AgentMinTTLSecs: viper.GetInt("PATISSUER_MIN_TTL_SECS"),
+		AgentMaxTTLSecs: viper.GetInt("PATISSUER_AGENT_MAX_TTL_SECS"),
 		OpenBaoProxyURL: trimValue(viper.GetString("PATISSUER_OPENBAO_PROXY_URL")),
 		TransitMount:    trimValue(viper.GetString("PATISSUER_TRANSIT_MOUNT")),
 		TransitKey:      trimValue(viper.GetString("PATISSUER_TRANSIT_KEY")),
@@ -53,6 +59,8 @@ func setDefaults() {
 	viper.SetDefault("PATISSUER_SIGNER", signerLocal)
 	viper.SetDefault("PATISSUER_LOCAL_KEY_PEM", "")
 	viper.SetDefault("PATISSUER_MAX_TTL_DAYS", 370)
+	viper.SetDefault("PATISSUER_MIN_TTL_SECS", 60)
+	viper.SetDefault("PATISSUER_AGENT_MAX_TTL_SECS", 86400)
 	viper.SetDefault("PATISSUER_OPENBAO_PROXY_URL", "")
 	viper.SetDefault("PATISSUER_TRANSIT_MOUNT", "transit")
 	viper.SetDefault("PATISSUER_TRANSIT_KEY", "pat-signing")

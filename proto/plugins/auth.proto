@@ -23,6 +23,9 @@ message TokenValidationResponse {
     // suffix. On the PAT path this is the self-asserted claim, which the
     // gateway ignores in favour of HoldResponse.kms_tenant.
     string kms_tenant = 4;
+    // Agent identity from a verified PAT's agent_id claim (4Orbit). Empty for
+    // account-level PATs. Never taken from the request body.
+    string agent_id = 5;
 }
 
 // Validates an Auth0 M2M token for a gateway-internal capability. The caller

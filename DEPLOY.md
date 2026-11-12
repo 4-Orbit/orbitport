@@ -1,251 +1,232 @@
 # DEPLOY: Orbitport + 4Orbit on your own machine
 
-This guide runs the merged stack on one machine: the Orbitport gateway and plugins, local OpenBao, per-agent Cedar enforcement in the KMS plugin, the new `plugin-policy`, and the operator console with the policy playground.
+This runs the merged stack locally: the Orbitport gateway and plugins, local OpenBao, per-agent Cedar enforcement in the KMS plugin, the policy plugin, and the operator console with the policy playground. Every command below was run on an Apple Silicon Mac (macOS, Docker Desktop, Compose v2) on 2026-11-10.
 
-> **Status.** This describes the **target** setup defined in [`TODO.md`](TODO.md). Steps 1–3 work on this branch today. Steps marked **(M*n*)** need the TODO milestone with that number. Until those land, see [Before the merge lands](#before-the-merge-lands) at the end.
+Everything here is **development only**: OpenBao runs in dev mode with the public root token `root`, the account plugin is a noop that maps every token to one tenant (`noop-tenant`), and OpenBao keeps its data in memory. Don't expose these ports to an untrusted network.
 
-Everything here is **development only**: OpenBao runs in dev mode with root token `root`, the account plugin is a noop, and data lives in memory. Don't expose any of these ports to an untrusted network.
+What changed and why is in [`TODO.md`](TODO.md) and [`docs/4orbit/`](docs/4orbit/README.md).
 
 ---
 
-## 0. What you'll end up with
+## 0. What you get
 
 | Service | Host address | Purpose |
 |---|---|---|
-| `gateway` | `http://127.0.0.1:8080` | Public JSON-RPC API (`/api/v1/rpc`), `/healthz` |
-| `gateway` internal | `http://127.0.0.1:8090` | PAT issuance (loopback only) |
+| `gateway` | `http://127.0.0.1:8080` | Public JSON-RPC API (`/api/v1/rpc`, including the new `policy.*` methods) and `/healthz` |
+| `gateway` internal | `http://127.0.0.1:8090` | PAT and agent-credential issuance, loopback only |
 | `plugin-jwks` | `http://127.0.0.1:8091/.well-known/jwks.json` | PAT public keys |
-| `openbao-proxy` | `http://127.0.0.1:8200` | OpenBao (Transit, KV v2, `orbitport-policy`) |
-| `plugin-policy` | gRPC `plugin-policy:50009` (internal), metrics `:9009` | Policy store, validation, simulation, audit **(M4)** |
-| `console` | `http://127.0.0.1:4317` | Operator console and policy playground **(M5/M6)** |
+| `openbao-proxy` | `http://127.0.0.1:8200` | OpenBao: Transit, KV v2, and the new `orbitport-policy` mount |
+| `plugin-policy` | gRPC `plugin-policy:50009` (internal); metrics on `:9009` | Versioned policy store, validation, simulation, test suites, decision audit |
+| `console` | `http://127.0.0.1:4317` | Operator console and policy playground |
 
-The default 4Orbit demo organization, which the seed step loads:
+The seed step loads the 4Orbit demo organization:
 
-| Agent | Role | Allowed |
+| Agent | Role | Allowed (everything else is denied) |
 |---|---|---|
-| `developer-agent` | `developer` | `use` on `demo-key` (until 2027-01-15T08:00:00Z), `use` on `dev-key` |
-| `security-agent` | `security` | `rotate` on `demo-key`, `dev-key`, `prod-key` |
-| `deployment-agent` | `deployment` | `use` on `prod-key` |
+| `developer-agent` | `developer` | `kms.Encrypt` on `demo-key` until 2027-01-15T08:00:00Z, and `kms.Encrypt` on `dev-key` |
+| `security-agent` | `security` | `kms.RotateKey` on `demo-key`, `dev-key` and `prod-key` |
+| `deployment-agent` | `deployment` | `kms.Encrypt` on `prod-key` |
 
-Anything else is denied by default.
+A token without an `agent_id` (an account-level PAT, such as the operator's) keeps today's Orbitport behavior: full control of its own tenant (`platform.owner`).
 
 ---
 
 ## 1. Prerequisites
 
-| Tool | Version | Check |
-|---|---|---|
-| Docker Desktop (or Engine) + Compose v2 | recent | `docker info && docker compose version` |
-| Make | any | `make --version` |
-| Git | any | `git --version` |
-| Node.js | **22.12+** (console dev and tests only; the console also runs in Docker) | `node -v` |
-| `curl`, `jq` | any | `jq --version` |
-| Go 1.26+ and Rust 1.85+ | **only** for native `make test` / `make e2e` | `go version`, `cargo --version` |
+| Tool | Version | Needed for | Check |
+|---|---|---|---|
+| Docker Desktop (or Engine) with Compose v2 | recent | everything | `docker info && docker compose version` |
+| GNU Make | any | everything | `make --version` |
+| Git, `curl`, `jq` | any | everything | `jq --version` |
+| Node.js | 22.12 or newer | console development and tests only (the console also runs in Docker) | `node -v` |
+| Go | 1.26 or newer | native Go tests (`make test`, `make 4orbit-test`) | `go version` |
+| Rust (stable) with `rustfmt` and `clippy` | 1.85 or newer | native Rust tests and lint | `cargo --version` |
+| `protoc` + `protoc-gen-go` v1.36.12 + `protoc-gen-go-grpc` v1.6.2 | | only if you edit `proto/` | `protoc --version` |
+| `golangci-lint` | v2 | only for `make lint` | `golangci-lint version` |
 
-Docker builds supply Go and Rust inside containers, so you can run the stack without either installed on the host.
+On macOS with Homebrew:
 
-**Apple Silicon:** the stack builds natively for linux/arm64, which was verified on an M-series Mac (see 4orbit `docs/local-stack-setup.md`). Give Docker Desktop at least **6 GB RAM** and **20 GB disk**. The first build takes 10–20 minutes.
+```sh
+brew install go protobuf jq golangci-lint
+rustup component add rustfmt clippy
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+```
+
+Give Docker Desktop at least **6 GB of memory**. The first build takes 10–20 minutes; later builds use the cache.
+
+> **Hardened base images.** Upstream Dockerfiles use `dhi.io/static` runtime images, which need a Docker Hardened Images login (`docker login dhi.io`). Without one, `make devenv-up` fails with `401 Unauthorized`. The `4orbit-*` targets build with the public `gcr.io/distroless/*-debian13:nonroot` images instead. To use the hardened images, pass `FOURORBIT_PLUGIN_RUNTIME=dhi.io/static:20250419-debian13 FOURORBIT_GATEWAY_RUNTIME=dhi.io/static:20250419-glibc`.
 
 ---
 
 ## 2. Clone
 
-Use one parent folder. The compose file looks for the optional OpenBao plugin repos as siblings of `orbitport/`.
-
 ```sh
 mkdir -p ~/cs189 && cd ~/cs189
-git clone -b ucsb-capstone https://github.com/4-Orbit/orbitport.git
+git clone https://github.com/4-Orbit/orbitport.git
+cd orbitport
+git checkout 4orbit-migration      # or the branch this work was merged into
+```
 
-# Optional (private, need SpaceComputer access). Enable Ethereum, PQC and threshold signing.
-# If they are missing the builders exit cleanly and bootstrap skips those mounts;
-# Transit (AES, ECDSA, Ed25519, RSA) still works, and so does every 4Orbit demo.
+Optional: the private OpenBao plugin repos enable Ethereum, PQC and threshold signing. They must be siblings of `orbitport/`:
+
+```sh
+cd ~/cs189
 git clone https://github.com/spacecomputer-io/openbao-eth-plugin.git
 git clone https://github.com/spacecomputer-io/openbao-pqc-plugin.git
 git clone https://github.com/spacecomputer-io/openbao-threshold-plugin.git
 ```
 
-Use your normal GitHub authentication. Never put a token in a clone URL.
+Without them, the plugin builders exit cleanly, OpenBao skips those mounts, and Docker creates empty `../openbao-*-plugin` folders as mount points. Transit (AES, ECDSA, Ed25519, RSA) and every 4Orbit flow still work. Two upstream e2e tests need the missing plugins and fail without them (see §9).
 
 ---
 
-## 3. Start the base Orbitport dev stack (works today)
-
-Do this once first, so you know the base stack is healthy before you add the overlays.
+## 3. Configure
 
 ```sh
 cd ~/cs189/orbitport
-make devenv-up            # docker-build + dev.docker-compose.yaml up -d
-docker compose -f dev.docker-compose.yaml ps
-curl -fsS http://127.0.0.1:8080/healthz          # {"status":"ok"}
-curl -fsS http://127.0.0.1:8200/v1/sys/health | jq .sealed   # false
+cp .4orbit.env.example .4orbit.env      # optional; defaults match this file
 ```
-
-`make devenv-up` calls `docker-compose`. If you only have the v2 plugin (`docker compose`), either `brew install docker-compose` or run the equivalent command yourself:
-
-```sh
-make docker-build
-OPMOCK_PROFILE=happy docker compose --env-file .dev.env -f dev.docker-compose.yaml up -d
-```
-
-The beacon can report `unhealthy` for a minute while IPFS starts. That's normal.
-
-Smoke-test the KMS. `authnoop` accepts any bearer token on this base stack:
-
-```sh
-curl -fsS http://127.0.0.1:8080/api/v1/rpc -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer test_access_token' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"kms.GetCapabilities","params":{}}' | jq '.result | keys'
-```
-
-Stop it before you continue: `make devenv-down`.
-
----
-
-## 4. Configure the 4Orbit overlay
-
-```sh
-cp .4orbit.env.example .4orbit.env     # (M3) template ships with the overlay
-chmod 600 .4orbit.env
-```
-
-The defaults work locally. The settings that matter:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ORBITPORT_KMS_AUTHZ_MODE` | `enforce` | `shadow` audits decisions but doesn't block |
-| `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS` | `5` | How fast an activated policy takes effect |
+| `ORBITPORT_KMS_AUTHZ_MODE` | `enforce` | `shadow` evaluates and audits every decision but never blocks |
+| `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS` | `5` | How long until an activated version is enforced |
 | `ORBITPORT_PATISSUER_MIN_TTL_SECS` | `60` | Shortest agent-token lifetime |
-| `FOURORBIT_AGENT_TOKEN_TTL` | `3600` | TTL the seed script uses for agent PATs |
-| `ORBITPORT_CONSOLE_PORT` | `4317` | Console port (always bound to `127.0.0.1`) |
-
-The overlay `4orbit.compose.yaml` **(M3–M6)** stacks on top of `dev.docker-compose.yaml` and `local-pat.compose.yaml`. It:
-
-- switches `plugin-auth` to the real PAT verifier (from `local-pat.compose.yaml`);
-- adds `ORBITPORT_KMS_POLICY_PLUGIN=http://plugin-policy:50009` to `plugin-kms` and the gateway;
-- adds the `plugin-policy`, `fourorbit-seed` (one-shot) and `console` services;
-- adds the `orbitport-policy` KV v2 mount to OpenBao bootstrap and a volume for audit JSONL.
+| `ORBITPORT_PATISSUER_AGENT_MAX_TTL_SECS` | `86400` | Longest agent-token lifetime |
+| `FOURORBIT_AGENT_TOKEN_TTL` | `3600` | Agent-token lifetime used by the seed step |
+| `FOURORBIT_OPERATOR_TOKEN_TTL` | `43200` | Operator-token lifetime used by the seed step |
+| `ORBITPORT_POLICY_AUDIT_RING` | `2000` | Decisions kept in memory per tenant |
+| `ORBITPORT_CONSOLE_PORT` | `4317` | Console port (bound to `127.0.0.1` only) |
+| `FOURORBIT_RESEED` | `false` | When `true`, the next `make 4orbit-seed` reloads the template as a new version |
 
 ---
 
-## 5. Build and start the merged stack **(M3–M6)**
+## 4. Build and start
 
 ```sh
 make 4orbit-up
 ```
 
-which runs:
+This builds `op-plugin`, `op-mocker`, `op-fourorbit-seed`, `op-gateway` and `op-console` with the public runtime images. It then starts:
 
 ```sh
-make docker-build
-OPMOCK_PROFILE=happy docker compose --env-file .dev.env --env-file .4orbit.env \
-  -f dev.docker-compose.yaml -f local-pat.compose.yaml -f 4orbit.compose.yaml up -d --build
+docker compose --env-file .dev.env --env-file .4orbit.env \
+  -f dev.docker-compose.yaml -f local-pat.compose.yaml -f 4orbit.compose.yaml up -d --no-build
 ```
 
-Check health:
+`local-pat.compose.yaml` replaces `authnoop` with the real auth plugin, so every token is a verified PAT and agent identity comes only from its signed `agent_id` claim. Once the gateway is healthy, `fourorbit-seed` runs automatically.
+
+Check:
 
 ```sh
-make 4orbit-ps                                     # every service healthy or exited(0)
-curl -fsS http://127.0.0.1:8080/healthz
-curl -fsS http://127.0.0.1:8091/.well-known/jwks.json | jq '.keys | length'   # >= 1
-docker exec plugin-policy /app healthcheck && echo policy ok
-docker exec plugin-kms    /app healthcheck && echo kms ok
-curl -fsS http://127.0.0.1:4317/ -o /dev/null && echo console ok
+make 4orbit-ps                                   # everything Up (healthy) or Exited (0)
+docker logs fourorbit-seed                       # ends with "seed complete"
+curl -fsS http://127.0.0.1:8080/healthz          # {"status":"ok"}
+curl -fsS http://127.0.0.1:4317/api/health       # {"gateway":"ok",...,"tokenPresent":true}
+ls .4orbit/tokens                                # operator.pat + one .pat per agent
 ```
+
+`plugin-beacon` can show `unhealthy` for a minute while IPFS starts. This is normal and unrelated to 4Orbit.
 
 ---
 
-## 6. Seed the demo organization **(M4)**
+## 5. What the seed did
 
-`fourorbit-seed` runs automatically on `make 4orbit-up`. To re-run it, for example after an OpenBao reset:
+`make 4orbit-seed` re-runs it. It's idempotent: on a stack that's already seeded, it only refreshes tokens. In order, it:
 
-```sh
-make 4orbit-seed
-```
+1. mints an **operator PAT** (account-level, 12 h) directly from `plugin-patissuer` over the compose network, writing `.4orbit/tokens/operator.pat`;
+2. creates Transit AES keys `demo-key`, `dev-key` and `prod-key`, tagged `env=demo|dev|prod`;
+3. if the tenant has no active policy, saves the 4Orbit template as **version 1** together with its **98-case test suite** (the 4Orbit permission matrix plus the US5 expiry boundary), then activates it, which only succeeds if every case passes;
+4. mints a 1-hour **agent PAT** for every registered agent, writing `.4orbit/tokens/<agent>.pat`.
 
-It is idempotent. Running inside the compose network, it:
-
-1. mints an **operator (Account) PAT** through `plugin-patissuer`. There's no `agent_id` and the TTL is 12 h. It's written to `.4orbit/tokens/operator.pat`;
-2. creates the Transit AES keys `demo-key`, `dev-key` and `prod-key` (tagged `env=demo|dev|prod`) and skips any that already exist;
-3. registers the three agents and roles, and loads `policies/4orbit/policy.cedar` and `entities.json` as **version 1**, together with the default test suite (the 4Orbit permission matrix);
-4. activates version 1, which only works if the suite passes;
-5. mints one **agent PAT** per agent (`agent_id` claim, `FOURORBIT_AGENT_TOKEN_TTL`) into `.4orbit/tokens/<agent>.pat`.
-
-`.4orbit/` is git-ignored and the token files are `chmod 600`. Don't `cat` them while screen-sharing.
+The token folder is mode 700 and the files are mode 600. Don't print them during a screen share.
 
 ---
 
-## 7. Verify enforcement from the command line **(M3)**
+## 6. Try it from the command line
 
-Use the small wrapper (it reads a token file and calls `/api/v1/rpc`):
+`scripts/4orbit/rpc.sh <token-name> <method> '<params>'` calls the gateway with a seeded token:
 
 ```sh
-alias rpc='scripts/4orbit/rpc.sh'      # usage: rpc <agent|operator> <method> '<params-json>'
+R=scripts/4orbit/rpc.sh
 
-# ALLOW: developer may use dev-key
-rpc developer-agent kms.Encrypt '{"KeyId":"kms:dev-key","Plaintext":"aGVsbG8="}' | jq '.result.KeyId'
-# "kms:dev-key"
+# ALLOW: the developer may encrypt with dev-key
+$R developer-agent kms.Encrypt '{"KeyId":"kms:dev-key","Plaintext":"aGVsbG8="}' | jq .result.KeyId
 
-# DENY: developer may not rotate. The KMS provider is never called.
-rpc developer-agent kms.RotateKey '{"KeyId":"kms:dev-key"}' | jq '.error.message'
-# "request denied by policy"
-
-# DENY: developer may not touch prod
-rpc developer-agent kms.Encrypt '{"KeyId":"kms:prod-key","Plaintext":"aGVsbG8="}' | jq '.error.message'
+# DENY: the developer may not rotate. The KMS backend is never called.
+$R developer-agent kms.RotateKey '{"KeyId":"kms:dev-key"}' | jq .error.message
+# "... request denied by policy"
 
 # ALLOW: security may rotate prod
-rpc security-agent kms.RotateKey '{"KeyId":"kms:prod-key"}' | jq '.result.KeyMetadata.PrimaryVersion'
+$R security-agent kms.RotateKey '{"KeyId":"kms:prod-key"}' | jq .result.KeyMetadata.PrimaryVersion
 
-# DENY: an agent can never change policy (platform.agents-never-edit-policy)
-rpc security-agent policy.Activate '{"Version":1}' | jq '.error.message'
+# DENY: agents can never administer policy (platform.agents-never-administer-policy)
+$R security-agent policy.Activate '{"version":1}' | jq .error.message
 
-# Audit: the last five decisions
-rpc operator policy.ListAudit '{"Limit":5}' | jq '.result.Events[] | {principal, action, resource, decision, determiningPolicies, kmsCalled}'
+# The operator's account PAT keeps full owner rights
+$R operator kms.RotateKey '{"KeyId":"kms:dev-key"}' | jq .result.KeyMetadata.KeyId
+
+# The audit trail
+$R operator policy.ListAudit '{"limit":5}' | jq '.result.events[] | {principal,action,resource,decision,determiningPolicies,kmsCalled}'
+
+# The playground API: time travel past the US5 expiry
+$R operator policy.Simulate '{"at":1800000000,"requests":[{"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}]}' | jq '.result.results[0].decision'
+# "DENY"
 ```
 
-What to expect: every DENY has `kmsCalled: false`, and every ALLOW names its `@id` policy, such as `developer-use-dev-key`. A token that's tampered with or expired gets an HTTP 401 from the gateway before Cedar runs.
+To run all 47 end-to-end checks (enforcement, forged and tampered tokens, audit, playground API, the test gate, live activation and rollback, and agent tokens):
+
+```sh
+make 4orbit-e2e          # ends with "passed: 47  failed: 0"
+```
 
 ---
 
-## 8. Use the console and policy playground **(M5/M6)**
+## 7. The console and policy playground
 
-Open **http://127.0.0.1:4317**. Use `127.0.0.1` or `localhost`, because other hostnames get a 403. The BFF reads `.4orbit/tokens/operator.pat` and the browser never sees it.
+Open **http://127.0.0.1:4317**. Use `127.0.0.1` or `localhost`; any other Host header gets a 403. The console's server reads `.4orbit/tokens/operator.pat` on every call and never sends it to the browser.
+
+| Tab | What it does |
+|---|---|
+| **Activity** | Every KMS decision and policy-admin attempt (polls every 3 s), with filters by agent, decision, action and key. Click a row for the determining policies, whether the KMS was called, enforce or shadow mode, and the policy version. **Replay in simulator** sends that request to the Simulate tab. |
+| **Access** | Agents × keys × KMS actions for the active version, the editor draft or any saved version, at the current time or a simulated one. Click a cell to see why. |
+| **Policies** | A Cedar editor with highlighting and server-side validation as you type (the same engine as enforcement, with errors placed at their line). Also: an agents-and-roles editor, snippets, **What changes vs active?** (the decision diff), **Save as new version**, and the read-only platform policy. |
+| **Simulate** | Ask Cedar about any principal, action, resource, key tags, source and time. Results show a SIMULATED TIME badge when you time-travel. **Save as test case** adds the result to the test suite. |
+| **Tests** | The tenant's saved expectations. Run them against the draft, the active version or any saved version; add or remove cases and save the suite. |
+| **Versions** | The version list, a decision diff and text diff against the active version, **Activate** (refused while any test fails, showing which cases fail, with an explicit *Activate anyway* step), **Roll back**, and **Open in editor**. |
+| **Agents** | Registered agents and their roles. **Mint token** issues a short-lived agent PAT, shown once, with a ready-to-paste `kms-mcp` config. |
 
 A five-minute walkthrough:
 
-1. **Activity.** The requests from step 7 are listed with ALLOW and DENY badges. Click a row for its determining policy and whether the KMS was called.
-2. **Access.** The matrix of agents × actions × keys for the active version. It should match the table in §0.
-3. **Policies → New draft.** Add:
-   ```cedar
-   @id("deployment-sign-prod")
-   permit (principal in Role::"deployment", action == Action::"kms.Sign", resource == Key::"prod-key");
-   ```
-   Validation runs as you type. Without an `@id` you get an error and a quick fix.
-4. **Diff.** The draft-vs-active matrix highlights the cells your draft changes.
-5. **Simulate.** Pick `developer-agent`, `kms.Encrypt`, `demo-key`, then set the simulated time to `2027-01-16`. You get DENY with a "SIMULATED TIME" badge, which is the US5 expiry.
-6. **Tests → Run all.** The 4Orbit matrix should still pass. Add a case: `deployment-agent kms.Sign prod-key → ALLOW`.
-7. **Activate.** You get version 2. Within `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS`, the KMS enforces it. Check with `rpc deployment-agent kms.Sign …` (this needs a signing key; see the next point).
-8. **Versions → Roll back** to v1. Enforcement reverts.
-9. **Agents → Mint token.** Pick an agent and a TTL, then copy the token and the `kms-mcp` snippet. The token is shown only once.
-10. **Export.** Download the policy bundle, because dev OpenBao loses it on `down`.
+1. **Access**: the matrix matches the table in §0.
+2. **Policies → Insert snippet → Single agent may rotate a key**, then change it to `Agent::"developer-agent"` and `Key::"dev-key"`. The badge turns VALID. Click **What changes vs active?** and exactly one cell flips to ALLOW.
+3. **Save as new version** with a message.
+4. **Versions → Activate**: refused, because the 4Orbit suite expects the developer's rotate on `dev-key` to be DENY. Read the failing case, then either use **Activate anyway…** or update the case on **Tests** and activate.
+5. Within about 5 s, `scripts/4orbit/rpc.sh developer-agent kms.RotateKey '{"KeyId":"kms:dev-key"}'` succeeds. **Activity** names your new policy and version.
+6. **Versions → Roll back to this** on v1. The same call is denied again.
+7. **Simulate**: `developer-agent`, `kms.Encrypt`, `demo-key`, time `2027-01-16 00:00:00` gives DENY with a SIMULATED TIME badge.
 
-For console development with hot reload, against the running stack:
+For console development with hot reload against the running stack:
 
 ```sh
 cd console
 npm ci
-ORBITPORT_URL=http://127.0.0.1:8080 ORBITPORT_CONSOLE_PAT_FILE=../.4orbit/tokens/operator.pat npm run dev   # http://127.0.0.1:5173
+npm run dev        # http://127.0.0.1:5173, proxying /api to the console server on :4317
 ```
+
+Stop the `console` container first (`docker stop console`) so port 4317 is free. The dev server reads `../.4orbit/tokens/operator.pat` and talks to `http://127.0.0.1:8080` by default (`ORBITPORT_URL` and `ORBITPORT_CONSOLE_PAT_FILE` override these).
 
 ---
 
-## 9. Run a real agent through MCP **(M3)**
+## 8. A real agent through MCP
 
 ```sh
-make mcp-build                                    # builds target/release/kms-mcp
+make mcp-build
 install -m 755 target/release/kms-mcp ~/.local/bin/kms-mcp
 ```
 
-Point your MCP client (Claude Code, Claude Desktop, Codex) at the launcher with an **agent** PAT. Don't use the operator PAT here:
+Point your MCP client (Claude Code, Claude Desktop, Codex) at the launcher with an **agent** token, never the operator's:
 
 ```json
 {
@@ -261,83 +242,73 @@ Point your MCP client (Claude Code, Claude Desktop, Codex) at the launcher with 
 }
 ```
 
-Ask the agent to encrypt with `kms:dev-key` (allowed), then to rotate it (denied). Both show up in **Activity**. More client examples are in [`mcp/CLIENT_SETUP.md`](mcp/CLIENT_SETUP.md).
+Ask the agent to encrypt with `kms:dev-key` (allowed) and then to rotate it (denied). Both show up on **Activity**. Seeded agent tokens last 1 hour; refresh them with `make 4orbit-seed` or mint one on **Agents**.
 
 ---
 
-## 10. Tests
+## 9. Tests
+
+| What | Command | Needs the stack? | Result on 2026-11-10 |
+|---|---|---|---|
+| All Go and Rust unit tests | `make test` | no | pass |
+| 4Orbit unit tests (Go engine, KMS, policy, auth, patissuer; Rust gateway; console) | `make 4orbit-test` | no | pass |
+| Lint | `make lint` (`golangci-lint` + `clippy -D warnings`) | no | 0 issues |
+| Console typecheck and build | `cd console && npm run typecheck && npm run build` | no | pass |
+| 4Orbit end-to-end | `make 4orbit-e2e` | 4Orbit stack | 47/47 |
+| Original gateway e2e | `make devenv && make e2e-all` | plain dev stack (`authnoop`) | all pass except `kms_ethereum_create_key_and_sign` and `threshold_coordinate_dkg`, which need the private OpenBao plugins (§2) |
+| Original beacon e2e | `make go-e2e` | plain dev stack | pass |
+
+The original e2e suites authenticate with the literal `test_access_token`, which only `authnoop` accepts. Run them on the plain dev stack, not the 4Orbit overlay:
 
 ```sh
-make test                        # Go + Rust unit tests, incl. authz permission matrix (M1)
-make lint
-(cd console && npm ci && npm test && npm run typecheck)                 # (M5)
+make 4orbit-down
+make devenv           # starts the plain dev stack from the images make 4orbit-up built
+make e2e-all
+make go-e2e
+make devenv-down
+make 4orbit           # back to the 4Orbit stack (then make 4orbit-seed)
+```
 
-# e2e against the merged stack (it must be up)
-make E2E_PROFILE=agents e2e-lazy                                        # (M3)
-(cd console && npx playwright test)                                     # (M6)
+`make devenv-up` rebuilds with the hardened `dhi.io` base images. Use `make devenv` (no rebuild) unless you have a `dhi.io` login.
 
-# Regression: the original suites still pass on the plain dev stack
-make 4orbit-down && make devenv-up && make e2e-all && make go-e2e
+On the plain dev stack, `authnoop` treats the bearer `agent:<id>` as that agent. With no policy plugin there, every agent is denied and account tokens behave as before:
+
+```sh
+scripts/4orbit/rpc.sh dev:agent:developer-agent kms.GetKeyMetadata '{"KeyId":"kms:x"}'   # denied by policy
+scripts/4orbit/rpc.sh dev:test_access_token     kms.GetCapabilities                      # works
 ```
 
 ---
 
-## 11. Day-to-day operation
+## 10. Day-to-day
 
 | Task | Command |
 |---|---|
-| Start (existing images) | `make 4orbit` |
-| Rebuild after code changes | `make 4orbit-up` |
-| Logs | `docker compose -f dev.docker-compose.yaml -f local-pat.compose.yaml -f 4orbit.compose.yaml logs --tail 100 -f gateway plugin-kms plugin-policy` |
-| Stop, keep containers | `make 4orbit-stop` |
-| Tear down | `make 4orbit-down` |
-| Refresh expired agent tokens | `make 4orbit-seed` (only re-mints, keeps keys and policies) |
-| Move the audit log aside | `docker exec plugin-policy sh -c 'mv /var/lib/orbitport/audit/*.jsonl /var/lib/orbitport/audit/archive/'` |
+| Start from existing images | `make 4orbit` |
+| Rebuild everything and start | `make 4orbit-up` |
+| Refresh tokens (or seed a fresh stack) | `make 4orbit-seed` |
+| Follow logs | `make 4orbit-logs` |
+| Status | `make 4orbit-ps` |
+| Stop, keeping containers | `make 4orbit-stop` |
+| Remove containers | `make 4orbit-down` |
 
-**Persistence warning:** OpenBao dev mode keeps everything **in memory**. `down` (and often a Docker Desktop restart) wipes keys, KV metadata **and every policy version**. After a reset, run `make 4orbit-seed` and re-import your exported bundle from the console. Never use `down -v` unless you mean to delete the IPFS and plugin-build volumes as well.
+**Persistence:** dev OpenBao keeps everything in memory. `make 4orbit-down`, and often a Docker Desktop restart, wipes keys, key metadata and **every policy version and test suite**. Afterwards, `make 4orbit` brings the stack back and the seed runs again automatically. To keep your own policies, copy them out of the Policies tab or fetch them with `scripts/4orbit/rpc.sh operator policy.GetVersion '{"version":N}'` before you tear down. The decision audit lives in `plugin-policy`'s memory (the newest 2000 events per tenant) and resets when that container restarts.
 
 ---
 
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
-| `make: docker-compose: command not found` | Install `docker-compose`, or use the `docker compose` commands shown in §3 and §5. |
-| OpenBao plugin builders fail | The sibling repos are present but broken. Remove them or `git pull` them. When they're absent, builders skip. |
-| `401` on every call after the overlay | Real PAT verification is on, so `test_access_token` no longer works. Use the files in `.4orbit/tokens/`. Tokens expired? Run `make 4orbit-seed`. |
-| Legacy e2e fails on the overlay | Expected: it uses `authnoop` tokens. Run it on the plain dev stack (§10). |
-| Every agent call is DENY, even allowed ones | No active policy (OpenBao was reset), so run `make 4orbit-seed`. Or `plugin-policy` is down (`docker logs plugin-policy`), and agents fail closed. |
-| A policy change isn't enforced | Wait for `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS`. Check the console header shows the new active version. |
-| Activate refused | A test case failed. Open **Tests** to see which. |
-| Console shows `403` | Wrong host. Browse to `http://127.0.0.1:4317`. Over SSH, use `ssh -L 4317:127.0.0.1:4317 host`. |
-| Console says "operator token missing" | `.4orbit/tokens/operator.pat` doesn't exist. Run `make 4orbit-seed`. |
-| `Alias already exists` from `kms.CreateKey` | Creation isn't idempotent. Use the existing `kms:<alias>`. |
-| `kms.CreateKey` returns HTTP 400 | Include `"Tags": []` even when it's empty. |
-| Port in use (8080, 8200, 4317 …) | Stop the other process, or change the host port in `4orbit.compose.yaml`. |
-| Builds are very slow or OOM on a Mac | Raise Docker Desktop memory to 6 GB or more. |
-
----
-
-## Before the merge lands
-
-Until M3 is done, the closest working setup is the 4Orbit external gate pointed at this local stack (verified October 16, 2026):
-
-```sh
-# Terminal 1: base Orbitport stack (section 3)
-cd ~/cs189/orbitport && make devenv-up
-
-# Create a local key once
-curl -fsS http://127.0.0.1:8080/api/v1/rpc -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer test_access_token' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"kms.CreateKey","params":{"Description":"4orbit demo","Scheme":"TRANSIT","KeySpec":"AES_256_GCM96","KeyUsage":"ENCRYPT_DECRYPT","Alias":"demo-key","Tags":[]}}'
-
-# Terminal 2: 4Orbit Prototype 1 against localhost
-cd ~/cs189/4orbit/prototype-1 && npm ci
-ORBITPORT_API_URL=http://127.0.0.1:8080 ORBITPORT_ACCESS_TOKEN=test_access_token \
-ORBITPORT_DEMO_KEY_ID=kms:demo-key npm run demo:real
-
-# Terminal 3: the GUI v1 console (read-only, mock test requests)
-cd ~/cs189/4orbit/web && npm ci && npm start     # http://127.0.0.1:4317
-```
-
-This setup has the limits that motivate the merge: Cedar runs outside Orbitport, so the shared token bypasses it, and agent IDs are self-asserted.
+| `failed to fetch anonymous token ... dhi.io ... 401 Unauthorized` | You ran `make devenv-up` or `make docker-build` without a DHI login. Use `make 4orbit-up`, or `make docker-build PLUGIN_RUNTIME_IMAGE=gcr.io/distroless/static-debian13:nonroot GATEWAY_RUNTIME_IMAGE=gcr.io/distroless/cc-debian13:nonroot`. |
+| Every call returns HTTP 401 | Your token expired (agent tokens last 1 h, the operator token 12 h), or OpenBao was reset and its signing key changed. Run `make 4orbit-seed`. The old dev bearer `test_access_token` never works on this stack. |
+| The console shows "Operator token missing" or "operator token rejected" | Run `make 4orbit-seed`. The console re-reads the file, so there's no need to restart it. |
+| Every agent call is denied, even allowed ones | No active policy (OpenBao was reset), so run `make 4orbit-seed`. Or `plugin-policy` is down and agents fail closed: check `docker logs plugin-policy`. |
+| A newly activated policy isn't enforced yet | Wait `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS` (5 s). The console header shows the active version. |
+| Activate is refused | A test case fails. The Versions tab lists which; fix the policy or the case, or force it deliberately. |
+| `policy.* ... policy plugin not configured` | The gateway was started without the overlay. Use `make 4orbit`, not `make devenv`. |
+| `kms.Sign` with an Ethereum key, or PQC or threshold calls, fail with "no handler for route" | The private OpenBao plugins aren't checked out (§2). |
+| The console returns 403 | Wrong Host. Browse to `http://127.0.0.1:4317`; over SSH, use `ssh -L 4317:127.0.0.1:4317 host`. |
+| A port is in use (8080, 8200, 4317, 9009…) | Stop the other process, or change the host port in `4orbit.compose.yaml`. |
+| Linux: the seed or console can't write or read `.4orbit/tokens` | Both run as your host UID and GID (the Makefile passes `id -u` and `id -g`). Don't run `make` with `sudo`, and remove a `.4orbit/` owned by root. |
+| Builds are very slow or run out of memory on a Mac | Raise Docker Desktop memory to 6 GB or more. |

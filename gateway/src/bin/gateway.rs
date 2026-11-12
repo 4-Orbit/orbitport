@@ -41,6 +41,10 @@ struct Args {
     /// M2M-authorized internal PAT issuance route.
     #[clap(long, env = "ORBITPORT_PATISSUER_PLUGIN")]
     patissuer_plugin: Option<String>,
+    /// Optional 4Orbit policy plugin gRPC URL. When set, the gateway serves
+    /// the policy.* JSON-RPC methods used by the console's policy playground.
+    #[clap(long, env = "ORBITPORT_POLICY_PLUGIN")]
+    policy_plugin: Option<String>,
     /// Rate limit per access token, 4 requests per second
     /// (40 requests per 10 seconds window)
     #[clap(long, env = "ORBITPORT_RATE_LIMIT", default_value = "40")]
@@ -154,6 +158,9 @@ async fn main() -> Result<(), GatewayError> {
     if let Some(ref url) = args.patissuer_plugin {
         plugin_urls.push(url.to_string());
     }
+    if let Some(ref url) = args.policy_plugin {
+        plugin_urls.push(url.to_string());
+    }
     if args.threshold_enabled {
         let threshold_plugin = args.threshold_plugin.trim();
         if threshold_plugin.is_empty() {
@@ -191,16 +198,19 @@ async fn main() -> Result<(), GatewayError> {
     } else {
         gateway::services::threshold::ThresholdGroupRegistry::default()
     };
-    let plugin_catalog = Arc::new(gateway::plugins::PluginCatalog::new(
-        &args.auth_plugin,
-        masterseed_plugin.as_deref(),
-        &args.kms_plugin,
-        args.account_plugin.as_deref(),
-        args.patissuer_plugin.as_deref(),
-        args.threshold_enabled,
-        args.threshold_plugin.trim(),
-        threshold_groups,
-    ));
+    let plugin_catalog = Arc::new(
+        gateway::plugins::PluginCatalog::new(
+            &args.auth_plugin,
+            masterseed_plugin.as_deref(),
+            &args.kms_plugin,
+            args.account_plugin.as_deref(),
+            args.patissuer_plugin.as_deref(),
+            args.threshold_enabled,
+            args.threshold_plugin.trim(),
+            threshold_groups,
+        )
+        .with_policy(args.policy_plugin.as_deref()),
+    );
 
     server::start(
         args.http_port,

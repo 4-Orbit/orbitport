@@ -23,6 +23,23 @@ service KmsPlugin {
   rpc KeyStoreGet(KeyStoreGetRequest) returns (KeyStoreGetResponse);
   rpc KeyStoreList(KeyStoreListRequest) returns (KeyStoreListResponse);
   rpc KeyStoreDelete(KeyStoreDeleteRequest) returns (KeyStoreDeleteResponse);
+  // Lists the tenant's key metadata for the policy playground. Not part of the
+  // public JSON-RPC API; the gateway exposes it as policy.ListKeys.
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+}
+
+// Caller identity reaches this plugin as gRPC metadata set only by the
+// gateway: x-orbitport-agent-id (from a verified PAT's agent_id claim) and
+// x-orbitport-jti-hash. Absent agent id = account principal.
+
+message ListKeysRequest {
+  string client_id = 1;
+}
+
+message ListKeysResponse {
+  repeated KeyMetadata keys = 1;
+  // True when the tenant has more keys than the plugin returns in one call.
+  bool truncated = 2;
 }
 
 message Tag {
