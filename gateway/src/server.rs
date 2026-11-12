@@ -9,6 +9,7 @@ use crate::service_manager::ServiceManager;
 use crate::types::{EncryptionKey, GatewayError, ServiceRequest};
 
 use crate::agent_delegation::{self, AgentCredentialStore};
+use crate::agent_request_auth;
 use crate::auth::pat_issue_route;
 use crate::caller::{Caller, hash_jti};
 use crate::filters::{
@@ -155,11 +156,6 @@ pub async fn start(
         rpc_route.map(warp::reply::Reply::into_response).boxed()
     };
 
-    let routes: BoxedFilter<(Response,)> = metered_routes
-        .or(health_route.with(warp::log("health_check")))
-        .map(warp::reply::Reply::into_response)
-        .boxed();
-
     // The public key set is published by the jwks plugin, not here. The
     // gateway routes and meters the API rather than republishing another
     // service's keys.
@@ -167,6 +163,18 @@ pub async fn start(
     let agent_delegation_enabled =
         std::env::var("ORBITPORT_AGENT_DELEGATION_ENABLED").is_ok_and(|value| value == "true");
     let agent_store = agent_delegation_enabled.then(AgentCredentialStore::default);
+    let routes: BoxedFilter<(Response,)> = match &agent_store {
+        Some(store) => metered_routes
+            .or(agent_request_auth::preview_route(store.clone()))
+            .unify()
+            .or(health_route.with(warp::log("health_check")))
+            .map(warp::reply::Reply::into_response)
+            .boxed(),
+        None => metered_routes
+            .or(health_route.with(warp::log("health_check")))
+            .map(warp::reply::Reply::into_response)
+            .boxed(),
+    };
     let auth_client = service_manager.get_auth_client();
     let internal: Option<BoxedFilter<(Response,)>> = match (patissuer_client, agent_store) {
         (Some(client), Some(store)) => Some(
@@ -282,6 +290,10 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
                     "error": "invalid_credential",
                     "message": "Unknown or revoked credential"
                 }),
+            ),
+            GatewayError::DelegationUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                serde_json::json!({"error": "delegation_unavailable"}),
             ),
             GatewayError::AccountInactive => (
                 StatusCode::FORBIDDEN,
@@ -641,6 +653,21 @@ mod test {
         assert_eq!(reply.status(), StatusCode::UNAUTHORIZED);
         let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
         assert_eq!(body["error"], "invalid_credential");
+    }
+
+    #[tokio::test]
+    async fn delegation_unavailable_rejection_maps_to_503() {
+        let route = warp::any()
+            .and_then(|| async {
+                Err::<warp::reply::Json, Rejection>(warp::reject::custom(
+                    GatewayError::DelegationUnavailable,
+                ))
+            })
+            .recover(handle_rejection);
+        let reply = warp::test::request().reply(&route).await;
+        assert_eq!(reply.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value = serde_json::from_slice(reply.body()).unwrap();
+        assert_eq!(body, serde_json::json!({"error": "delegation_unavailable"}));
     }
 
     #[tokio::test]
