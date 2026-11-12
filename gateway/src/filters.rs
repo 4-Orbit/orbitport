@@ -30,6 +30,9 @@ pub struct AuthContext {
     pub jti: String,
     /// The token's kms_tenant claim; ignored, tenancy comes from Hold.
     pub kms_tenant: String,
+    /// Agent identity from a verified PAT (4Orbit). Empty = account-level
+    /// credential. Forwarded to plugins, never read from the request.
+    pub agent_id: String,
 }
 
 /// AuthContextWithHold carries the validated JWT context and the dashboard
@@ -165,6 +168,7 @@ async fn authorize(
                 client_id,
                 jti: response.jti.trim().to_string(),
                 kms_tenant: response.kms_tenant.trim().to_string(),
+                agent_id: response.agent_id.trim().to_string(),
             })
         }
         Err(GatewayError::NoAuthHeaderError) => {
@@ -587,6 +591,7 @@ mod test {
             client_id: "client".to_string(),
             jti: "jti".to_string(),
             kms_tenant: String::new(),
+            agent_id: String::new(),
         };
 
         for _i in 0..5 {

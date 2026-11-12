@@ -14,6 +14,7 @@ use crate::proto::plugins::account::account_plugin_client::AccountPluginClient;
 use crate::proto::plugins::auth::auth_plugin_client::AuthPluginClient;
 use crate::proto::plugins::kms::kms_plugin_client::KmsPluginClient;
 use crate::proto::plugins::patissuer::pat_issuer_plugin_client::PatIssuerPluginClient;
+use crate::proto::plugins::policy::policy_plugin_client::PolicyPluginClient;
 use crate::proto::plugins::threshold::threshold_plugin_client::ThresholdPluginClient;
 use crate::services::threshold::ThresholdGroupRegistry;
 
@@ -172,6 +173,22 @@ impl PluginCatalog {
         Ok(Channel::from_shared(url.to_string())
             .map_err(|e| PluginError::ConnectionError(format!("Failed to create channel: {e}")))?
             .connect_lazy())
+    }
+
+    /// Adds the 4Orbit policy plugin. Absent = the policy.* methods are
+    /// unavailable and the KMS plugin runs on the platform policy alone.
+    pub fn with_policy(mut self, policy_url: Option<&str>) -> Self {
+        if let Some(url) = policy_url {
+            let mut urls = (*self.urls).clone();
+            urls.insert("policy".to_string(), url.to_string());
+            self.urls = Arc::new(urls);
+        }
+        self
+    }
+
+    pub async fn get_policy_client(&self) -> Result<PolicyPluginClient<Channel>, PluginError> {
+        let channel = self.get_client("policy").await?;
+        Ok(PolicyPluginClient::new(channel))
     }
 
     pub async fn get_auth_client(&self) -> Result<AuthPluginClient<Channel>, PluginError> {

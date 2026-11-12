@@ -46,7 +46,7 @@ run: build
 	@GOLOG_LOG_LEVEL=${GOLOG_LOG_LEVEL} ./bin/plugin -e ${ENV_FILE}
 
 docker-build:
-	@${CONTAINER_TOOL} build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+	@${CONTAINER_TOOL} build $(if ${RUNTIME_IMAGE},--build-arg RUNTIME_IMAGE=${RUNTIME_IMAGE}) -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
 
 docker-clean:
 	@${CONTAINER_TOOL} rm -f ${DOCKER_CONTAINER_NAME} 2> /dev/null
@@ -56,7 +56,7 @@ docker-run: docker-clean docker-build
 		--name ${DOCKER_CONTAINER_NAME} ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 mocker-docker-build:
-	@${CONTAINER_TOOL} build -t ${MOCKER_DOCKER_IMAGE}:${DOCKER_TAG} --build-arg BUILD_TARGET=mocker .
+	@${CONTAINER_TOOL} build $(if ${RUNTIME_IMAGE},--build-arg RUNTIME_IMAGE=${RUNTIME_IMAGE}) -t ${MOCKER_DOCKER_IMAGE}:${DOCKER_TAG} --build-arg BUILD_TARGET=mocker .
 
 help:
 	@echo ""

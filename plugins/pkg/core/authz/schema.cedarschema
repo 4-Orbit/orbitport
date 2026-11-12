@@ -1,0 +1,75 @@
+// Orbitport agent-authorization schema (4Orbit merge).
+//
+// Actions are the gateway RPC method names, grouped under 4Orbit's
+// vocabulary (use / rotate / read / admin) so a policy can say either
+// `action == Action::"kms.Encrypt"` or `action in Action::"use"`.
+//
+// Every resource carries `tenant`; the platform policy fences tenants.
+// `context.currentTime` is set by the enforcing plugin's trusted clock and is
+// the only context a policy can read.
+
+entity Role;
+entity Account { tenant: String };
+entity Agent in [Role] { tenant: String };
+entity Key {
+  tenant: String,
+  scheme: String,
+  keySpec: String,
+  keyUsage: String,
+} tags String;
+entity KeyNamespace { tenant: String };
+entity KeyStoreKey { tenant: String, name: String };
+entity KeyStoreNamespace { tenant: String, prefix: String };
+entity PolicySet { tenant: String };
+
+type TrustedContext = { currentTime: Long };
+
+action "use", "rotate", "read", "admin", "keystore", "policy";
+
+action "kms.Encrypt", "kms.Decrypt", "kms.Sign", "kms.GenerateDataKey", "kms.Encapsulate", "kms.Decapsulate" in ["use"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Key],
+  context: TrustedContext,
+};
+
+action "kms.RotateKey" in ["rotate"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Key],
+  context: TrustedContext,
+};
+
+action "kms.GetKeyMetadata", "kms.GetPublicKey" in ["read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Key],
+  context: TrustedContext,
+};
+
+action "kms.ListKeys" in ["read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [KeyNamespace],
+  context: TrustedContext,
+};
+
+action "kms.CreateKey" in ["admin"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Key],
+  context: TrustedContext,
+};
+
+action "kms_keystore.Put", "kms_keystore.Get", "kms_keystore.Delete" in ["keystore"] appliesTo {
+  principal: [Account, Agent],
+  resource: [KeyStoreKey],
+  context: TrustedContext,
+};
+
+action "kms_keystore.List" in ["keystore"] appliesTo {
+  principal: [Account, Agent],
+  resource: [KeyStoreNamespace],
+  context: TrustedContext,
+};
+
+action "policy.Read", "policy.Write", "policy.Activate", "policy.Simulate", "policy.IssueAgentToken" in ["policy"] appliesTo {
+  principal: [Account, Agent],
+  resource: [PolicySet],
+  context: TrustedContext,
+};

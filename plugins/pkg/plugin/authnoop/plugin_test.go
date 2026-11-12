@@ -39,3 +39,26 @@ func TestValidateTokenReturnsDeterministicClientID(t *testing.T) {
 		t.Fatalf("expected different tokens to map to different client IDs, got %q", first.ClientId)
 	}
 }
+
+func TestValidateTokenDevAgentConvention(t *testing.T) {
+	plugin, err := NewPlugin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"agent:developer-agent": "developer-agent",
+		"agent:Bad Agent":       "",
+		"agent:":                "",
+		"test_access_token":     "",
+		"developer-agent":       "",
+	}
+	for token, want := range cases {
+		resp, err := plugin.ValidateToken(context.Background(), &proto.TokenValidationRequest{Token: token})
+		if err != nil {
+			t.Fatalf("%q: %v", token, err)
+		}
+		if resp.AgentId != want {
+			t.Errorf("%q: agent_id = %q, want %q", token, resp.AgentId, want)
+		}
+	}
+}

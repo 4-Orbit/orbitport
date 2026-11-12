@@ -3,6 +3,7 @@ package kms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -373,6 +374,37 @@ func (c *openBaoClient) getMetadata(ctx context.Context, clientID, keyID string)
 		return nil, fmt.Errorf("metadata owner does not match request owner")
 	}
 	return record, nil
+}
+
+// listMetadata returns the key IDs with stored metadata in the tenant's
+// namespace. A tenant with no keys yields an empty list.
+func (c *openBaoClient) listMetadata(ctx context.Context, clientID string) ([]string, error) {
+	var resp struct {
+		Data struct {
+			Keys []string `json:"keys"`
+		} `json:"data"`
+	}
+	target := c.joinPath("v1", c.kvMount, "metadata", "kms", "metadata", tenantNamespace(clientID))
+	if err := c.List(ctx, target, &resp); err != nil {
+		var statusErr *openbao.StatusError
+		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var ids []string
+	for _, k := range resp.Data.Keys {
+		if strings.HasSuffix(k, "/") {
+			continue
+		}
+		if unescaped, err := url.PathUnescape(k); err == nil {
+			k = unescaped
+		}
+		if strings.HasPrefix(k, keyIDPrefix) {
+			ids = append(ids, k)
+		}
+	}
+	return ids, nil
 }
 
 func (c *openBaoClient) metadataPath(clientID, keyID string) string {

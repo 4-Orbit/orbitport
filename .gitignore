@@ -47,3 +47,13 @@ openbao-threshold-plugin/
 
 # Local agent/editor config
 .claude/
+
+# 4Orbit local state: seeded tokens and overlay settings
+.4orbit/
+.4orbit.env
+
+# Console build output and dependencies
+console/node_modules/
+console/dist/
+console/test-results/
+console/playwright-report/
