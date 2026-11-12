@@ -1,0 +1,15 @@
+{
+  "verifiedAt": "2026-11-11T00:07:36.503Z",
+  "repository": "laurenc06/orbitport-issue-test",
+  "mode": "REAL",
+  "credentialMode": "LOCAL_STUB",
+  "deniedRequests": 2,
+  "deniedGitHubCalls": 0,
+  "allowedRequests": 1,
+  "issueCreationPosts": 1,
+  "auditMetadataOnly": true,
+  "issue": {
+    "number": 1,
+    "url": "https://github.com/laurenc06/orbitport-issue-test/issues/1"
+  }
+}
