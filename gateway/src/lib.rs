@@ -52,9 +52,9 @@ pub mod logging;
 pub mod metrics;
 
 pub mod agent_delegation;
+pub mod agent_request_auth;
 pub mod auth;
 pub mod caller;
-pub mod agent_request_auth;
 pub mod filters;
 pub mod plugins;
 pub mod server;
