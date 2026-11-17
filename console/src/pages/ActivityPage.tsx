@@ -1,5 +1,6 @@
 import { Intro, Term } from "../components/Help.tsx";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { appendPage } from "../paging.ts";
 import { api } from "../api.ts";
 import { usePolling } from "../usePolling.ts";
 import { go } from "../route.ts";
@@ -13,10 +14,54 @@ import { formatTime } from "../format.ts";
 export const uidId = (uid: string) => /::"(.*)"$/.exec(uid)?.[1] ?? uid;
 export const uidType = (uid: string) => uid.split("::")[0];
 
+/** Events per page. The newest page keeps polling; older pages are appended. */
+const PAGE = 50;
+
+interface Older {
+  /** The filter these pages belong to (as JSON), so a filter change discards them. */
+  filterKey: string;
+  items: AuditEvent[];
+  cursor: string;
+}
+
 export function ActivityPage({ selectedId }: { selectedId: string | null }) {
-  const [filter, setFilter] = useState<AuditFilter>({ limit: 200 });
-  const audit = usePolling(() => api.audit(filter), 3000);
-  const events = audit.data?.events ?? [];
+  const [filter, setFilter] = useState<AuditFilter>({});
+  const filterKey = JSON.stringify(filter);
+  const audit = usePolling(() => api.audit({ ...filter, limit: PAGE }), 3000);
+  const [older, setOlder] = useState<Older>({ filterKey, items: [], cursor: "" });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const shownIds = useRef<Set<string>>(new Set());
+
+  // A new filter re-queries now and drops pages loaded for the old one.
+  useEffect(() => {
+    setOlder({ filterKey, items: [], cursor: "" });
+    void audit.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
+
+  const newest = audit.data?.events ?? [];
+  const olderItems = older.filterKey === filterKey ? older.items : [];
+  // If so many events arrived that the newest page no longer touches what is
+  // shown, older pages would leave a hidden gap: start again from the newest.
+  useEffect(() => {
+    if (olderItems.length === 0 || newest.length === 0) return;
+    if (!newest.some((e) => shownIds.current.has(e.requestId))) setOlder({ filterKey, items: [], cursor: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audit.data]);
+
+  const events = appendPage(newest, olderItems, (e) => e.requestId);
+  shownIds.current = new Set(events.map((e) => e.requestId));
+  const olderCursor = olderItems.length > 0 ? older.cursor : (audit.data?.nextCursor ?? "");
+
+  async function loadOlder() {
+    setLoadingOlder(true);
+    try {
+      const r = await api.audit({ ...filter, limit: PAGE, cursor: olderCursor });
+      setOlder({ filterKey, items: appendPage(olderItems, r.events, (e) => e.requestId), cursor: r.nextCursor });
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
   const selected = events.find((e) => e.requestId === selectedId) ?? null;
   const principals = new Set(events.map((e) => e.principal)).size;
 
@@ -93,6 +138,17 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="list-footer">
+              <span className="muted small">
+                Showing {events.length} {filterKey === "{}" ? "" : "matching "}event{events.length === 1 ? "" : "s"}, newest first
+                {olderCursor ? "; older events exist" : "; that's everything still kept (the newest 2,000 per tenant)"}
+              </span>
+              {olderCursor && (
+                <button type="button" className="button small" disabled={loadingOlder} onClick={() => void loadOlder()}>
+                  {loadingOlder ? "Loading…" : "Load older events"}
+                </button>
+              )}
             </div>
           </section>
           {selected && <Detail ev={selected} />}

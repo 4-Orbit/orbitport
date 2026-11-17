@@ -302,7 +302,7 @@ export function PoliciesPage() {
           </header>
           <div className="panel-body">
             {mode === "rules" ? (
-              <RulesView validation={validation} validatedText={checked?.text ?? ""} keys={keys.data ?? []} onEditCedar={() => setMode("cedar")} onChanged={announce} />
+              <RulesView validation={validation} validatedText={checked?.text ?? ""} keys={keys.data ?? []} moreKeys={keys.more} onEditCedar={() => setMode("cedar")} onChanged={announce} />
             ) : (
               <>
                 <CedarEditor

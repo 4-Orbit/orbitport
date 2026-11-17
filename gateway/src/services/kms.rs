@@ -301,11 +301,18 @@ impl KmsService {
 
     /// Lists the tenant's key metadata (policy playground). Authorized by the
     /// KMS plugin as kms.ListKeys.
-    pub async fn list_keys(&mut self, client_id: &str) -> Result<serde_json::Value, tonic::Status> {
+    pub async fn list_keys(
+        &mut self,
+        client_id: &str,
+        cursor: &str,
+        limit: u32,
+    ) -> Result<serde_json::Value, tonic::Status> {
         let response = self
             .client
             .list_keys(self.caller.request(PluginListKeysRequest {
                 client_id: client_id.to_string(),
+                cursor: cursor.to_string(),
+                limit,
             }))
             .await?
             .into_inner();
@@ -327,7 +334,11 @@ impl KmsService {
                 })
             })
             .collect();
-        Ok(serde_json::json!({"keys": keys, "truncated": response.truncated}))
+        Ok(serde_json::json!({
+            "keys": keys,
+            "truncated": response.truncated,
+            "nextCursor": response.next_cursor,
+        }))
     }
 
     pub fn validate_encrypt(req: &EncryptRequest) -> Result<(), String> {

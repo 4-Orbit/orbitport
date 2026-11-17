@@ -5,7 +5,7 @@ import { useState } from "react";
 const short = (action: string) => action.replace(/^kms\./, "");
 
 /** One table per principal: keys as rows, actions as columns. Click a cell to see why. */
-export function MatrixGrid({ matrix, onCell }: { matrix: MatrixResult; onCell?: (cell: Cell) => void }) {
+export function MatrixGrid({ matrix, onCell, hideHeader = false }: { matrix: MatrixResult; onCell?: (cell: Cell) => void; hideHeader?: boolean }) {
   const [picked, setPicked] = useState<Cell | null>(null);
   const index = new Map(matrix.cells.map((c) => [`${c.principal}|${c.resource}|${c.action}`, c]));
   return (
@@ -15,10 +15,12 @@ export function MatrixGrid({ matrix, onCell }: { matrix: MatrixResult; onCell?: 
         const roles = p ? matrix.agentRoles[p] ?? [] : [];
         return (
           <section key={name} className="panel matrix-agent">
+            {!hideHeader && (
             <header className="panel-head">
               <h2 className="mono">{name}</h2>
               <span className="muted small">{p ? (roles.length ? `roles: ${roles.join(", ")}` : "no roles") : "account-level credential (platform.owner)"}</span>
             </header>
+            )}
             <div className="table-wrap">
               <table className="matrix-table">
                 <thead>

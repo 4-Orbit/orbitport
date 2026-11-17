@@ -34,12 +34,18 @@ service KmsPlugin {
 
 message ListKeysRequest {
   string client_id = 1;
+  // Key id to continue after (next_cursor from the previous page); empty = first page.
+  string cursor = 2;
+  // Page size; 0 or above the plugin maximum means the maximum (200).
+  uint32 limit = 3;
 }
 
 message ListKeysResponse {
   repeated KeyMetadata keys = 1;
-  // True when the tenant has more keys than the plugin returns in one call.
+  // True when more keys follow; same as next_cursor being non-empty.
   bool truncated = 2;
+  // Pass as cursor to get the next page; empty on the last page.
+  string next_cursor = 3;
 }
 
 message Tag {

@@ -94,8 +94,21 @@ expect "audit has no plaintext or ciphertext" operator policy.ListAudit '{"limit
 
 echo "== Playground API"
 expect "schema and actions" operator policy.GetSchema '{}' '.result.actions | length >= 20'
-expect "ListKeys returns the seeded keys with tags" operator policy.ListKeys '{}' \
-  '[.result.keys[].alias] | sort == ["demo-key","dev-key","prod-key"]'
+# Page through every key (200 per page) and check the seeded ones are there.
+all_keys='[]'; cursor=""
+while :; do
+  params='{}'; [[ -n "$cursor" ]] && params="{\"cursor\":\"$cursor\"}"
+  page="$("$rpc" operator policy.ListKeys "$params")"
+  all_keys="$(jq -c --argjson acc "$all_keys" '$acc + (.result.keys // [])' <<<"$page")"
+  cursor="$(jq -r '.result.nextCursor // ""' <<<"$page")"
+  [[ -z "$cursor" ]] && break
+done
+if jq -e '[.[] | select(.alias == "demo-key" or .alias == "dev-key" or .alias == "prod-key") | "\(.alias)=\(.tags[0].value)"] | sort == ["demo-key=demo","dev-key=dev","prod-key=prod"]' <<<"$all_keys" >/dev/null \
+  && jq -e '[.[].keyId] | length == (unique | length)' <<<"$all_keys" >/dev/null; then
+  ok "ListKeys pages through every key; seeded keys present with tags ($(jq length <<<"$all_keys") keys)"
+else
+  bad "ListKeys pages through every key" "$(jq -c '[.[].alias]' <<<"$all_keys" | cut -c1-300)"
+fi
 expect "Validate flags a policy without @id" operator policy.Validate '{"policies":"permit (principal, action, resource);"}' '.result.ok == false'
 expect "Simulate: developer demo-key now (ALLOW)" operator policy.Simulate \
   '{"requests":[{"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}]}' \
@@ -105,6 +118,42 @@ expect "Simulate time travel past US5 expiry (DENY)" operator policy.Simulate \
   '.result.results[0].decision == "DENY" and .result.simulatedTime == true'
 expect "Matrix over the active version" operator policy.Matrix '{}' '.result.cells | length == 90'
 expect "Stored test suite passes" operator policy.RunTests '{}' '.result.failed == 0 and .result.total == 98'
+
+echo "== Paging"
+# Versions: walk every page (50 per page keeps us well under the gateway's
+# per-token rate limit) and check numbers are unique and descending.
+cursor=""; seen='[]'; latest=""
+while :; do
+  params='{"limit":50}'; [[ -n "$cursor" ]] && params="{\"limit\":50,\"cursor\":\"$cursor\"}"
+  page="$("$rpc" operator policy.ListVersions "$params")"
+  [[ -z "$latest" ]] && latest="$(jq '.result.versions[0].version' <<<"$page")"
+  seen="$(jq -c --argjson acc "$seen" '$acc + [.result.versions[].version]' <<<"$page")"
+  cursor="$(jq -r '.result.nextCursor // ""' <<<"$page")"
+  [[ -z "$cursor" ]] && break
+done
+if jq -e --argjson n "$latest" 'length == $n and . == (sort | reverse) and (unique | length) == length' <<<"$seen" >/dev/null; then
+  ok "ListVersions pages through all $latest versions, newest first, no repeats"
+else
+  bad "ListVersions paging" "$(jq -c . <<<"$seen" | cut -c1-200)"
+fi
+expect "ListVersions rejects a bad cursor" operator policy.ListVersions '{"cursor":"abc"}' '.error.data.reason == "invalid_argument"'
+# Activity: two filtered pages do not overlap and the cursor moves backwards.
+p1="$("$rpc" operator policy.ListAudit '{"limit":5,"decision":"DENY"}')"
+c1="$(jq -r '.result.nextCursor' <<<"$p1")"
+if [[ -n "$c1" ]]; then
+  p2="$("$rpc" operator policy.ListAudit "{\"limit\":5,\"decision\":\"DENY\",\"cursor\":\"$c1\"}")"
+  if jq -e -n --argjson a "$p1" --argjson b "$p2" '([$a.result.events[].requestId] - [$b.result.events[].requestId] | length) == ($a.result.events | length) and all($b.result.events[]; .decision == "DENY")' >/dev/null; then
+    ok "ListAudit pages filtered events without overlap"
+  else
+    bad "ListAudit paging" "$(jq -c '.result | {n: (.events|length), nextCursor}' <<<"$p2")"
+  fi
+else
+  bad "ListAudit paging" "expected more than 5 DENY events"
+fi
+expect "Matrix summary counts each agent's keys" operator policy.Matrix '{"summary":true}' \
+  '([.result.summary[] | {(.principal): .allowedKeys}] | add) == {"deployment-agent":1,"developer-agent":2,"security-agent":3}'
+expect "Matrix focuses one agent on the keys it can use" operator policy.Matrix '{"agents":["developer-agent"],"onlyAllowed":true}' \
+  '.result.keys == ["demo-key","dev-key"] and .result.totalKeys == 2'
 
 echo "== Draft -> test gate -> activate -> live enforcement -> rollback"
 active="$("$rpc" operator policy.GetActive '{}')"
