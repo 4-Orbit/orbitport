@@ -1,14 +1,16 @@
 import { Intro, Term } from "../components/Help.tsx";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { appendPage } from "../paging.ts";
 import { api } from "../api.ts";
 import { usePolling } from "../usePolling.ts";
 import { go } from "../route.ts";
 import { useDraft } from "../draft.tsx";
-import type { AuditEvent, AuditFilter, Decision } from "../types.ts";
+import type { AuditEvent, AuditFilter, Decision, KeyInfo } from "../types.ts";
 import { DecisionBadge, KmsCalledBadge, KmsResultBadge, ModeBadge, PolicyChips } from "../components/Badges.tsx";
 import { SummaryStrip } from "../components/SummaryStrip.tsx";
 import { formatTime } from "../format.ts";
+import { ExplanationView, LiveExplanation } from "../components/Explanation.tsx";
+import { useKeys } from "./shared.ts";
 
 /** `Agent::"developer-agent"` -> developer-agent */
 export const uidId = (uid: string) => /::"(.*)"$/.exec(uid)?.[1] ?? uid;
@@ -63,6 +65,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
     }
   }
   const selected = events.find((e) => e.requestId === selectedId) ?? null;
+  const keys = useKeys();
   const principals = new Set(events.map((e) => e.principal)).size;
 
   return (
@@ -151,7 +154,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
               )}
             </div>
           </section>
-          {selected && <Detail ev={selected} />}
+          {selected && <Detail ev={selected} keys={keys.data} />}
         </div>
       )}
     </>
@@ -184,7 +187,7 @@ function Filters({ filter, onChange }: { filter: AuditFilter; onChange: (f: Audi
   );
 }
 
-function Detail({ ev }: { ev: AuditEvent }) {
+function Detail({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null }) {
   const draft = useDraft();
   const replayable = uidType(ev.resource) === "Key" && ev.action.startsWith('Action::"kms.');
   const replay = () => {
@@ -244,6 +247,7 @@ function Detail({ ev }: { ev: AuditEvent }) {
         <dt>Token</dt>
         <dd className="mono muted">{ev.jtiHash ? `jti hash ${ev.jtiHash}` : "—"}</dd>
       </dl>
+      {ev.decision === "DENY" && <DenyExplanation ev={ev} keys={keys} />}
       {replayable && (
         <div className="detail-section">
           <p className="muted small">Would your draft have decided this differently?</p>
@@ -253,5 +257,53 @@ function Detail({ ev }: { ev: AuditEvent }) {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * Why an Activity DENY happened: explained against the version that was
+ * enforced, at the time of the request. Audit events don't record key tags,
+ * so tag rules are judged with the key's current tags.
+ *
+ * Policy administration (policy.*) is decided by the platform rules alone
+ * and recorded with version 0, so it is explained against an empty bundle,
+ * which leaves exactly the platform rules. A KMS event with version 0 means
+ * no version was active.
+ */
+function DenyExplanation({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null }) {
+  const agentId = uidType(ev.principal) === "Agent" ? uidId(ev.principal) : undefined;
+  const action = uidId(ev.action);
+  const type = uidType(ev.resource);
+  const id = uidId(ev.resource);
+  const at = Math.floor(Date.parse(ev.ts) / 1000);
+  const key = type === "Key" ? keys?.find((k) => k.alias === id) : undefined;
+  const tags = key ? Object.fromEntries(key.tags.map((t) => [t.key, t.value])) : undefined;
+  const tagsKey = JSON.stringify(tags ?? null);
+  const platformOnly = action.startsWith("policy.");
+  const source = platformOnly ? { draft: { policies: "", entities: [] } } : { version: ev.policyVersion };
+  const load = useCallback(
+    () =>
+      api
+        .explain(
+          { agentId, action, resource: { type, id, ...(tags && { tags }), ...(key && { attrs: { scheme: key.scheme, keySpec: key.keySpec, keyUsage: key.keyUsage } }) } },
+          source,
+          Number.isFinite(at) ? at : undefined,
+        )
+        .then((r) => r.explanation),
+    // tags/key are captured through tagsKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [agentId, action, type, id, ev.policyVersion, platformOnly, at, tagsKey],
+  );
+  const request = { agentId, action, resource: id };
+  return (
+    <div className="detail-section">
+      {platformOnly ? (
+        <LiveExplanation load={load} request={request} note="Policy administration is decided by the platform rules alone." />
+      ) : ev.policyVersion ? (
+        <LiveExplanation load={load} request={request} note={`Explained against v${ev.policyVersion} at the time of the request${type === "Key" ? ", using the key's current tags" : ""}.`} />
+      ) : (
+        <ExplanationView explanation={{ decision: "DENY", kind: "noPolicy", determiningPolicies: [] }} request={request} />
+      )}
+    </div>
   );
 }

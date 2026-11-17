@@ -4,6 +4,7 @@ import { api } from "../api.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { SimResult, SimulateResult, TestCase } from "../types.ts";
 import { DecisionBadge, PolicyChips, SimTimeBadge } from "../components/Badges.tsx";
+import { ExplanationView } from "../components/Explanation.tsx";
 import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { useKeys, useSchema, useVersions } from "./shared.ts";
 
@@ -72,6 +73,7 @@ export function SimulatePage() {
         ],
         toSource(choice, draft),
         toEpoch(when),
+        true,
       );
       setLast(r);
       setHistory((h) => [{ result: r.results[0], source: r.source, at: r.at, simulatedTime: r.simulatedTime }, ...h].slice(0, 15));
@@ -187,6 +189,9 @@ export function SimulatePage() {
               <span className="muted small">Determined by </span>
               <PolicyChips ids={result.determiningPolicies} />
             </div>
+            {result.explanation && (
+              <ExplanationView explanation={result.explanation} request={{ agentId: result.request.agentId, action: result.request.action, resource: result.request.resource.id }} />
+            )}
             {result.diagnostics && (
               <ul className="problems">
                 {result.diagnostics.map((d, i) => (

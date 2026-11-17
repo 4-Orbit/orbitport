@@ -52,8 +52,12 @@ export const api = {
   keys: (cursor = "", limit?: number) =>
     rpc<{ keys: T.KeyInfo[]; truncated: boolean; nextCursor: string }>("policy.ListKeys", { ...(cursor && { cursor }), ...(limit && { limit }) }),
   validate: (bundle: T.Bundle) => rpc<T.ValidateResult>("policy.Validate", { ...bundle }),
-  simulate: (requests: T.SimRequest[], source?: T.Source, at?: number) =>
-    rpc<T.SimulateResult>("policy.Simulate", { requests, ...(source && { source }), ...(at && { at }) }),
+  /** With explain, each DENY carries an explanation (the first 50). */
+  simulate: (requests: T.SimRequest[], source?: T.Source, at?: number, explain = false) =>
+    rpc<T.SimulateResult>("policy.Simulate", { requests, ...(source && { source }), ...(at && { at }), ...(explain && { explain }) }),
+  /** Why one request is (or would be) denied by a source (default: active). */
+  explain: (request: T.SimRequest, source?: T.Source, at?: number) =>
+    rpc<T.ExplainResult>("policy.Explain", { ...request, ...(source && { source }), ...(at && { at }) }),
   matrix: (params: {
     source?: T.Source;
     keys?: T.Resource[];

@@ -1014,6 +1014,52 @@ table.compact td {
   box-shadow: 0 4px 18px #0008;
 }
 
+/* ---------- why was this denied? ---------- */
+
+.explanation {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--deny-line);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  max-width: 72ch;
+}
+
+.explanation p {
+  margin: 0;
+}
+
+.explanation-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.explanation-headline {
+  margin-top: 4px !important;
+  color: var(--text-strong);
+  line-height: 1.5;
+}
+
+.explanation-headline .chip,
+.explanation-details .chip {
+  margin: 0 2px;
+}
+
+.explanation-details {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.explanation .muted.small {
+  margin-top: 6px;
+}
+
 /* ---------- simulator / tests / versions / agents ---------- */
 
 .sim-form {
