@@ -497,6 +497,9 @@ type auditFilter struct {
 	Decision string `json:"decision"`
 	Action   string `json:"action"`
 	Resource string `json:"resource"`
+	// The short token hash (authz.HashJTI) of the credential that made the
+	// request: finds the events of one token, such as a console run.
+	JtiHash string `json:"jtiHash"`
 }
 
 const (
@@ -554,6 +557,9 @@ func (f auditFilter) matches(ev authz.AuditEvent) bool {
 		return false
 	}
 	if f.Resource != "" && !strings.HasSuffix(ev.Resource, `::"`+f.Resource+`"`) {
+		return false
+	}
+	if f.JtiHash != "" && ev.JtiHash != f.JtiHash {
 		return false
 	}
 	return true

@@ -32,6 +32,7 @@ pub const POLICY_METHODS: &[&str] = &[
     "policy.Simulate",
     "policy.Matrix",
     "policy.Diff",
+    "policy.Explain",
     "policy.RunTests",
     "policy.SaveDraft",
     "policy.PutTests",
@@ -215,6 +216,7 @@ mod tests {
     #[test]
     fn only_allowlisted_methods_parse() {
         assert!(PolicyCall::parse("policy.Simulate", "{}").is_ok());
+        assert!(PolicyCall::parse("policy.Explain", "{}").is_ok());
         assert!(PolicyCall::parse("policy.DropEverything", "{}").is_err());
         assert!(PolicyCall::parse("kms.Encrypt", "{}").is_err());
     }

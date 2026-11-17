@@ -76,6 +76,7 @@ expect "operator rotates dev-key (ALLOW: platform.owner)" operator kms.RotateKey
 
 echo "== Policy administration is account-only"
 expect "agent cannot read policy"         security-agent  policy.GetActive '{}' "$(denied)"
+expect "agent cannot ask for explanations" security-agent policy.Explain '{"action":"kms.Encrypt","resource":{"type":"Key","id":"dev-key"}}' "$(denied)"
 expect "agent cannot activate a version"  security-agent  policy.Activate '{"version":1}' "$(denied)"
 expect "agent cannot mint agent tokens"   developer-agent policy.IssueAgentToken '{"agentId":"security-agent"}' "$(denied)"
 expect "agent cannot list keys"           developer-agent policy.ListKeys '{}' "$(denied)"
@@ -116,6 +117,15 @@ expect "Simulate: developer demo-key now (ALLOW)" operator policy.Simulate \
 expect "Simulate time travel past US5 expiry (DENY)" operator policy.Simulate \
   '{"at":1800000000,"requests":[{"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}]}' \
   '.result.results[0].decision == "DENY" and .result.simulatedTime == true'
+expect "Explain: developer rotating dev-key names the closest rule" operator policy.Explain \
+  '{"agentId":"developer-agent","action":"kms.RotateKey","resource":{"type":"Key","id":"dev-key"}}' \
+  '.result.explanation.kind == "closest" and .result.explanation.candidates[0].policyId == "security-rotate-dev-key"'
+expect "Explain: the US5 grant expired at its boundary" operator policy.Explain \
+  '{"at":1800000000,"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}' \
+  '.result.explanation.kind == "expired" and .result.explanation.candidates[0].window.at == 1800000000'
+expect "Simulate attaches explanations to DENYs on request" operator policy.Simulate \
+  '{"explain":true,"requests":[{"agentId":"developer-agent","action":"kms.RotateKey","resource":{"type":"Key","id":"dev-key"}}]}' \
+  '.result.results[0].explanation.kind == "closest"'
 expect "Matrix over the active version" operator policy.Matrix '{}' '.result.cells | length == 90'
 expect "Stored test suite passes" operator policy.RunTests '{}' '.result.failed == 0 and .result.total == 98'
 

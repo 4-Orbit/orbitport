@@ -34,6 +34,7 @@ export const ALLOWED_METHODS = new Set([
   "policy.Simulate",
   "policy.Matrix",
   "policy.Diff",
+  "policy.Explain",
   "policy.RunTests",
   "policy.SaveDraft",
   "policy.PutTests",

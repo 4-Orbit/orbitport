@@ -22,9 +22,10 @@ Design and threat model: [`docs/4orbit/README.md`](../../../../docs/4orbit/READM
 | `policy.GetVersion` | `policy.Read` | `{version}` | one version |
 | `policy.GetTemplate` | `policy.Read` | `{template: "4orbit"}` | the template's policies, entities and tests, without saving anything |
 | `policy.GetTests` | `policy.Read` | — | the saved test suite |
-| `policy.ListAudit` | `policy.Read` | `{cursor?, limit? (≤200), agentId?, decision?, action?, resource?}` | `{events, nextCursor, summary}`, newest first; filters apply before paging |
+| `policy.ListAudit` | `policy.Read` | `{cursor?, limit? (≤200), agentId?, decision?, action?, resource?, jtiHash?}` | `{events, nextCursor, summary}`, newest first; filters apply before paging |
 | `policy.Validate` | `policy.Simulate` | `{policies, entities}` | `{ok, problems[], summary}` |
-| `policy.Simulate` | `policy.Simulate` | `{requests[], source?, at?}` | decisions; `at` sets a simulated time |
+| `policy.Simulate` | `policy.Simulate` | `{requests[], source?, at?, explain?}` | decisions; `at` sets a simulated time; with `explain: true`, each DENY (the first 50) carries an `explanation` like `policy.Explain`'s |
+| `policy.Explain` | `policy.Simulate` | `{agentId?, action, resource, source?, at?}` | `{source, version, at, simulatedTime, explanation}`: why the request is denied (`kind`: blocked, expired, notYet, conditionFalse, closest, noRule, unknownAgent, noPolicy, errored, invalidRequest), with the matching forbids or the closest permits and what each is missing. Computed by `authz.Explain` with the enforcement engine |
 | `policy.Matrix` | `policy.Simulate` | `{source?, keys? (≤5000), actions?, includeAccount?, at?, agents?, onlyAllowed?, keySearch?, keyOffset?, keyLimit? (≤100), agentOffset?, agentLimit? (≤50), summary?}` | one page of agents × keys × actions with `totalKeys`/`totalPrincipals`; with `summary: true`, per-agent counts over every key instead of cells |
 | `policy.Diff` | `policy.Simulate` | `{from?, to?, keys?, actions?}` | the cells whose decision changed |
 | `policy.RunTests` | `policy.Simulate` | `{source?, tests?}` | pass/fail report |
