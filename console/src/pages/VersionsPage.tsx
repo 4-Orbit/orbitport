@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { useDraft } from "../draft.tsx";
@@ -48,7 +49,11 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
   }
 
   return (
-    <div className={selected ? "split wide-detail" : undefined}>
+    <>
+      <Intro page="versions" title="Versions: saved snapshots, and which one is enforced">
+        A <Term k="version" /> is a permanent snapshot made by “Save as new version” on Policies. Saving never changes enforcement. Exactly one version is <Term k="active" />: the KMS enforces it. <strong>Activate</strong> switches (tests run first), and activating an older version is a <Term k="rollback">rollback</Term>.
+      </Intro>
+      <div className={selected ? "split wide-detail" : undefined}>
       <section className="panel">
         <header className="panel-head">
           <h2>Policy versions</h2>
@@ -76,7 +81,7 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
                   </td>
                   <td className="muted">{v.author}</td>
                   <td>{v.message || <span className="muted">—</span>}</td>
-                  <td>{v.active ? <span className="badge decision decision-allow">ACTIVE</span> : <span className="muted">saved</span>}</td>
+                  <td>{v.active ? <span className="badge decision decision-allow" title="The KMS enforces this version">ACTIVE</span> : <span className="muted" title="Saved, but the KMS doesn't enforce it">saved, not active</span>}</td>
                   <td>
                     {!v.active && (
                       <button
@@ -141,6 +146,7 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
         </aside>
       )}
     </div>
+    </>
   );
 }
 

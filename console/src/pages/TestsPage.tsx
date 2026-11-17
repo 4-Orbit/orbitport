@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { useDraft } from "../draft.tsx";
@@ -52,6 +53,9 @@ export function TestsPage() {
 
   return (
     <>
+      <Intro page="tests" title="Tests: expectations that must keep holding">
+        Each test says what one request should get (ALLOW or DENY). <Term k="activate">Activating</Term> a version runs every test first and refuses if any fail, which catches accidental access changes. Run them against your draft before saving.
+      </Intro>
       <section className="panel toolbar">
         <SourcePicker value={choice} onChange={setChoice} versions={versions} />
         <button type="button" className="button primary" onClick={() => void runAll()}>

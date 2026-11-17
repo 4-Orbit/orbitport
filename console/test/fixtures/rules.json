@@ -1,0 +1,733 @@
+[
+  {
+    "name": "developer-encrypt-dev-key",
+    "rule": {
+      "id": "developer-encrypt-dev-key",
+      "effect": "permit",
+      "who": {
+        "kind": "role",
+        "id": "developer"
+      },
+      "can": [
+        "kms.Encrypt"
+      ],
+      "on": {
+        "kind": "keys",
+        "ids": [
+          "dev-key"
+        ]
+      }
+    },
+    "cedar": "@id(\"developer-encrypt-dev-key\")\npermit (\n  principal in Role::\"developer\",\n  action == Action::\"kms.Encrypt\",\n  resource == Key::\"dev-key\"\n);",
+    "json": {
+      "annotations": {
+        "id": "developer-encrypt-dev-key"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "kms.Encrypt"
+        }
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Key",
+          "id": "dev-key"
+        }
+      }
+    }
+  },
+  {
+    "name": "ci-sign-release-keys",
+    "rule": {
+      "id": "ci-sign-release-keys",
+      "effect": "permit",
+      "who": {
+        "kind": "agent",
+        "id": "ci-agent"
+      },
+      "can": [
+        "kms.Sign",
+        "read"
+      ],
+      "on": {
+        "kind": "keys",
+        "ids": [
+          "release-a",
+          "release-b"
+        ]
+      },
+      "until": 1800000000
+    },
+    "cedar": "@id(\"ci-sign-release-keys\")\npermit (\n  principal == Agent::\"ci-agent\",\n  action in [Action::\"kms.Sign\", Action::\"read\"],\n  resource\n)\nwhen { resource in [Key::\"release-a\", Key::\"release-b\"] \u0026\u0026 context.currentTime \u003c 1800000000 };",
+    "json": {
+      "annotations": {
+        "id": "ci-sign-release-keys"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "==",
+        "entity": {
+          "type": "Agent",
+          "id": "ci-agent"
+        }
+      },
+      "action": {
+        "op": "in",
+        "entities": [
+          {
+            "type": "Action",
+            "id": "kms.Sign"
+          },
+          {
+            "type": "Action",
+            "id": "read"
+          }
+        ]
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "in": {
+                  "left": {
+                    "Var": "resource"
+                  },
+                  "right": {
+                    "Set": [
+                      {
+                        "Value": {
+                          "__entity": {
+                            "type": "Key",
+                            "id": "release-a"
+                          }
+                        }
+                      },
+                      {
+                        "Value": {
+                          "__entity": {
+                            "type": "Key",
+                            "id": "release-b"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "right": {
+                "\u003c": {
+                  "left": {
+                    ".": {
+                      "left": {
+                        "Var": "context"
+                      },
+                      "attr": "currentTime"
+                    }
+                  },
+                  "right": {
+                    "Value": 1800000000
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "deny-agents-prod",
+    "rule": {
+      "id": "deny-agents-prod",
+      "effect": "forbid",
+      "who": {
+        "kind": "anyAgent"
+      },
+      "can": [],
+      "on": {
+        "kind": "tag",
+        "key": "env",
+        "value": "prod"
+      }
+    },
+    "cedar": "@id(\"deny-agents-prod\")\nforbid (\n  principal is Agent,\n  action,\n  resource\n)\nwhen { resource.hasTag(\"env\") \u0026\u0026 resource.getTag(\"env\") == \"prod\" };",
+    "json": {
+      "annotations": {
+        "id": "deny-agents-prod"
+      },
+      "effect": "forbid",
+      "principal": {
+        "op": "is",
+        "entity_type": "Agent"
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "hasTag": {
+                  "left": {
+                    "Var": "resource"
+                  },
+                  "right": {
+                    "Value": "env"
+                  }
+                }
+              },
+              "right": {
+                "==": {
+                  "left": {
+                    "getTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "env"
+                      }
+                    }
+                  },
+                  "right": {
+                    "Value": "prod"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "deny-anyone-rotate",
+    "rule": {
+      "id": "deny-anyone-rotate",
+      "effect": "forbid",
+      "who": {
+        "kind": "anyone"
+      },
+      "can": [
+        "rotate"
+      ],
+      "on": {
+        "kind": "anyKey"
+      }
+    },
+    "cedar": "@id(\"deny-anyone-rotate\")\nforbid (\n  principal,\n  action in Action::\"rotate\",\n  resource\n);",
+    "json": {
+      "annotations": {
+        "id": "deny-anyone-rotate"
+      },
+      "effect": "forbid",
+      "principal": {
+        "op": "All"
+      },
+      "action": {
+        "op": "in",
+        "entity": {
+          "type": "Action",
+          "id": "rotate"
+        }
+      },
+      "resource": {
+        "op": "All"
+      }
+    }
+  },
+  {
+    "name": "ops-use-dev-tagged",
+    "rule": {
+      "id": "ops-use-dev-tagged",
+      "effect": "permit",
+      "who": {
+        "kind": "role",
+        "id": "ops"
+      },
+      "can": [
+        "use"
+      ],
+      "on": {
+        "kind": "tag",
+        "key": "env",
+        "value": "dev"
+      },
+      "until": 1799999999
+    },
+    "cedar": "@id(\"ops-use-dev-tagged\")\npermit (\n  principal in Role::\"ops\",\n  action in Action::\"use\",\n  resource\n)\nwhen { resource.hasTag(\"env\") \u0026\u0026 resource.getTag(\"env\") == \"dev\" \u0026\u0026 context.currentTime \u003c 1799999999 };",
+    "json": {
+      "annotations": {
+        "id": "ops-use-dev-tagged"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "ops"
+        }
+      },
+      "action": {
+        "op": "in",
+        "entity": {
+          "type": "Action",
+          "id": "use"
+        }
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "\u0026\u0026": {
+                  "left": {
+                    "hasTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "env"
+                      }
+                    }
+                  },
+                  "right": {
+                    "==": {
+                      "left": {
+                        "getTag": {
+                          "left": {
+                            "Var": "resource"
+                          },
+                          "right": {
+                            "Value": "env"
+                          }
+                        }
+                      },
+                      "right": {
+                        "Value": "dev"
+                      }
+                    }
+                  }
+                }
+              },
+              "right": {
+                "\u003c": {
+                  "left": {
+                    ".": {
+                      "left": {
+                        "Var": "context"
+                      },
+                      "attr": "currentTime"
+                    }
+                  },
+                  "right": {
+                    "Value": 1799999999
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "admin-agent-everything",
+    "rule": {
+      "id": "admin-agent-everything",
+      "effect": "permit",
+      "who": {
+        "kind": "agent",
+        "id": "admin-agent"
+      },
+      "can": [],
+      "on": {
+        "kind": "anyKey"
+      }
+    },
+    "cedar": "@id(\"admin-agent-everything\")\npermit (\n  principal == Agent::\"admin-agent\",\n  action,\n  resource\n);",
+    "json": {
+      "annotations": {
+        "id": "admin-agent-everything"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "==",
+        "entity": {
+          "type": "Agent",
+          "id": "admin-agent"
+        }
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      }
+    }
+  },
+  {
+    "name": "security-rotate-or-create",
+    "rule": {
+      "id": "security-rotate-or-create",
+      "effect": "permit",
+      "who": {
+        "kind": "role",
+        "id": "security"
+      },
+      "can": [
+        "rotate",
+        "admin"
+      ],
+      "on": {
+        "kind": "keys",
+        "ids": [
+          "prod-key"
+        ]
+      }
+    },
+    "cedar": "@id(\"security-rotate-or-create\")\npermit (\n  principal in Role::\"security\",\n  action in [Action::\"rotate\", Action::\"admin\"],\n  resource == Key::\"prod-key\"\n);",
+    "json": {
+      "annotations": {
+        "id": "security-rotate-or-create"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "security"
+        }
+      },
+      "action": {
+        "op": "in",
+        "entities": [
+          {
+            "type": "Action",
+            "id": "rotate"
+          },
+          {
+            "type": "Action",
+            "id": "admin"
+          }
+        ]
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Key",
+          "id": "prod-key"
+        }
+      }
+    }
+  },
+  {
+    "name": "unless-clause",
+    "rule": null,
+    "cedar": "@id(\"unless-clause\") permit (principal in Role::\"developer\", action, resource) unless { resource.hasTag(\"env\") };",
+    "json": {
+      "annotations": {
+        "id": "unless-clause"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "unless",
+          "body": {
+            "hasTag": {
+              "left": {
+                "Var": "resource"
+              },
+              "right": {
+                "Value": "env"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "extra-annotation",
+    "rule": null,
+    "cedar": "@id(\"extra-annotation\") @reason(\"audit\") permit (principal in Role::\"developer\", action, resource);",
+    "json": {
+      "annotations": {
+        "id": "extra-annotation",
+        "reason": "audit"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      }
+    }
+  },
+  {
+    "name": "keys-and-tag",
+    "rule": null,
+    "cedar": "@id(\"keys-and-tag\") permit (principal in Role::\"developer\", action, resource == Key::\"a\") when { resource.hasTag(\"env\") \u0026\u0026 resource.getTag(\"env\") == \"dev\" };",
+    "json": {
+      "annotations": {
+        "id": "keys-and-tag"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Key",
+          "id": "a"
+        }
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "hasTag": {
+                  "left": {
+                    "Var": "resource"
+                  },
+                  "right": {
+                    "Value": "env"
+                  }
+                }
+              },
+              "right": {
+                "==": {
+                  "left": {
+                    "getTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "env"
+                      }
+                    }
+                  },
+                  "right": {
+                    "Value": "dev"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "two-tags",
+    "rule": null,
+    "cedar": "@id(\"two-tags\") permit (principal, action, resource) when { resource.hasTag(\"env\") \u0026\u0026 resource.hasTag(\"team\") \u0026\u0026 resource.getTag(\"team\") == \"x\" };",
+    "json": {
+      "annotations": {
+        "id": "two-tags"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "All"
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "\u0026\u0026": {
+                  "left": {
+                    "hasTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "env"
+                      }
+                    }
+                  },
+                  "right": {
+                    "hasTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "team"
+                      }
+                    }
+                  }
+                }
+              },
+              "right": {
+                "==": {
+                  "left": {
+                    "getTag": {
+                      "left": {
+                        "Var": "resource"
+                      },
+                      "right": {
+                        "Value": "team"
+                      }
+                    }
+                  },
+                  "right": {
+                    "Value": "x"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "principal-in-agent",
+    "rule": null,
+    "cedar": "@id(\"principal-in-agent\") permit (principal == Agent::\"a\", action == Action::\"kms_keystore.Get\", resource);",
+    "json": {
+      "annotations": {
+        "id": "principal-in-agent"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "==",
+        "entity": {
+          "type": "Agent",
+          "id": "a"
+        }
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "kms_keystore.Get"
+        }
+      },
+      "resource": {
+        "op": "All"
+      }
+    }
+  },
+  {
+    "name": "or-condition",
+    "rule": null,
+    "cedar": "@id(\"or-condition\") permit (principal, action, resource) when { context.currentTime \u003c 5 || context.currentTime \u003e 10 };",
+    "json": {
+      "annotations": {
+        "id": "or-condition"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "All"
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "||": {
+              "left": {
+                "\u003c": {
+                  "left": {
+                    ".": {
+                      "left": {
+                        "Var": "context"
+                      },
+                      "attr": "currentTime"
+                    }
+                  },
+                  "right": {
+                    "Value": 5
+                  }
+                }
+              },
+              "right": {
+                "\u003e": {
+                  "left": {
+                    ".": {
+                      "left": {
+                        "Var": "context"
+                      },
+                      "attr": "currentTime"
+                    }
+                  },
+                  "right": {
+                    "Value": 10
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

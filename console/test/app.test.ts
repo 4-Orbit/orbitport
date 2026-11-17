@@ -147,6 +147,7 @@ test("serves the app shell for client routes and blocks traversal", async () => 
   assert.equal(shell.status, 200);
   assert.match(await shell.text(), /<title>app<\/title>/);
   assert.match(shell.headers.get("content-security-policy") ?? "", /script-src|default-src 'self'/);
+  assert.equal(shell.headers.get("cache-control"), "no-cache", "the app shell is revalidated after upgrades");
   const traversal = await fetch(`${consoleUrl}/..%2f..%2fetc%2fpasswd`);
   assert.ok([200, 404].includes(traversal.status));
   assert.doesNotMatch(await traversal.text(), /root:/);

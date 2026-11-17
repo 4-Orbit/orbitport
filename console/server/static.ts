@@ -27,6 +27,9 @@ export function serveStatic(dir: string, pathname: string, res: ServerResponse):
     "Content-Security-Policy":
       "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     "Referrer-Policy": "no-referrer",
+    // The shell names the hashed bundles, so it must be revalidated after an
+    // upgrade; the hashed assets themselves can be cached.
+    "Cache-Control": extname(file) === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
   });
   res.end(readFileSync(file));
   return true;

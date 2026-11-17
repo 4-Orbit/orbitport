@@ -53,8 +53,11 @@ export const api = {
   matrix: (params: { source?: T.Source; keys?: T.Resource[]; includeAccount?: boolean; at?: number }) => rpc<T.MatrixResult>("policy.Matrix", params),
   diff: (from: T.Source | undefined, to: T.Source | undefined, keys?: T.Resource[]) =>
     rpc<T.DiffResult>("policy.Diff", { ...(from && { from }), ...(to && { to }), ...(keys && { keys }) }),
-  saveDraft: (bundle: T.Bundle, message: string) => rpc<{ version: number }>("policy.SaveDraft", { ...bundle, message }),
-  loadTemplate: () => rpc<{ version: number; tests: number }>("policy.LoadTemplate", { template: "4orbit" }),
+  /** Saves a version; an identical existing version is returned with duplicate=true instead. */
+  saveDraft: (bundle: T.Bundle, message: string, allowDuplicate = false) =>
+    rpc<{ version: number; duplicate: boolean }>("policy.SaveDraft", { ...bundle, message, ...(allowDuplicate && { allowDuplicate }) }),
+  /** The 4Orbit template, read-only: nothing is saved. */
+  template: () => rpc<T.Bundle & { tests: T.TestCase[] }>("policy.GetTemplate", { template: "4orbit" }),
   activate: (version: number, force = false) => rpc<T.ActivateResult>("policy.Activate", { version, ...(force && { force }) }),
   issueAgentToken: (agentId: string, ttlSeconds: number) => rpc<T.IssuedToken>("policy.IssueAgentToken", { agentId, ttlSeconds }),
 };
