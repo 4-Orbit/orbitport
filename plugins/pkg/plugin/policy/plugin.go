@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -134,6 +135,7 @@ func (p *Plugin) methods() map[string]methodSpec {
 		"policy.ListVersions":    {"policy.Read", p.listVersions},
 		"policy.GetVersion":      {"policy.Read", p.getVersion},
 		"policy.GetTests":        {"policy.Read", p.getTests},
+		"policy.GetTemplate":     {"policy.Read", p.getTemplate},
 		"policy.ListAudit":       {"policy.Read", p.listAudit},
 		"policy.Validate":        {"policy.Simulate", p.validate},
 		"policy.Simulate":        {"policy.Simulate", p.simulate},
@@ -608,17 +610,32 @@ func (p *Plugin) saveDraft(ctx context.Context, c *call) (any, error) {
 		Policies string          `json:"policies"`
 		Entities json.RawMessage `json:"entities,omitempty"`
 		Message  string          `json:"message,omitempty"`
+		// Save even when an identical version already exists.
+		AllowDuplicate bool `json:"allowDuplicate,omitempty"`
 	}
 	if err := c.decode(&params); err != nil {
 		return nil, err
 	}
-	return p.save(ctx, c, authz.Bundle{Policies: params.Policies, Entities: params.Entities}, params.Message)
+	return p.save(ctx, c, authz.Bundle{Policies: params.Policies, Entities: params.Entities}, params.Message, params.AllowDuplicate)
 }
 
-func (p *Plugin) save(ctx context.Context, c *call, b authz.Bundle, message string) (any, error) {
+// save stores a bundle as a new immutable version. When an identical version
+// (same policy text and same entities) already exists it returns that
+// version with duplicate=true instead of piling up copies, unless
+// allowDuplicate is set.
+func (p *Plugin) save(ctx context.Context, c *call, b authz.Bundle, message string, allowDuplicate bool) (any, error) {
 	compiled, problems := authz.Compile(b)
 	if compiled == nil {
 		return nil, problemError(problems)
+	}
+	if !allowDuplicate {
+		existing, err := p.findIdentical(ctx, c.principal.Tenant, b)
+		if err != nil {
+			return nil, err
+		}
+		if existing > 0 {
+			return map[string]any{"version": existing, "duplicate": true, "summary": summarize(compiled)}, nil
+		}
 	}
 	if len(message) > 500 {
 		message = message[:500]
@@ -635,7 +652,47 @@ func (p *Plugin) save(ctx context.Context, c *call, b authz.Bundle, message stri
 		return nil, err
 	}
 	p.auditAdmin(c, "policy.Write", fmt.Sprintf("v%d", n), n)
-	return map[string]any{"version": n, "summary": summarize(compiled)}, nil
+	return map[string]any{"version": n, "duplicate": false, "summary": summarize(compiled)}, nil
+}
+
+// findIdentical returns a saved version whose policies and entities equal b
+// (entities compared as JSON values), or 0. The active version wins when it
+// matches; otherwise the newest match.
+func (p *Plugin) findIdentical(ctx context.Context, tenant string, b authz.Bundle) (int64, error) {
+	want := canonicalEntities(b.Entities)
+	if v, err := p.activeVersion(ctx, tenant); err == nil && v.Policies == b.Policies && canonicalEntities(v.Entities) == want {
+		return v.Version, nil
+	}
+	versions, err := p.store.ListVersions(ctx, tenant, maxVersionsList)
+	if err != nil {
+		return 0, err
+	}
+	for _, info := range versions {
+		v, err := p.store.GetVersion(ctx, tenant, info.Version)
+		if err != nil {
+			continue
+		}
+		if v.Policies == b.Policies && canonicalEntities(v.Entities) == want {
+			return v.Version, nil
+		}
+	}
+	return 0, nil
+}
+
+// canonicalEntities renders an entity list order-independently, so the same
+// agents and roles compare equal however they were written.
+func canonicalEntities(raw json.RawMessage) string {
+	var list []any
+	if len(bytes.TrimSpace(raw)) == 0 || json.Unmarshal(raw, &list) != nil {
+		list = []any{}
+	}
+	items := make([]string, 0, len(list))
+	for _, e := range list {
+		b, _ := json.Marshal(e)
+		items = append(items, string(b))
+	}
+	sort.Strings(items)
+	return strings.Join(items, "\n")
 }
 
 func (p *Plugin) putTests(ctx context.Context, c *call) (any, error) {
@@ -654,8 +711,25 @@ func (p *Plugin) putTests(ctx context.Context, c *call) (any, error) {
 	return map[string]any{"count": len(params.Tests)}, nil
 }
 
-// loadTemplate saves the 4Orbit demo organization as a new draft version and
-// installs its permission-matrix test suite. It does not activate.
+// getTemplate returns the 4Orbit demo organization and its test suite
+// without storing anything. The console loads it into the browser draft.
+func (p *Plugin) getTemplate(_ context.Context, c *call) (any, error) {
+	var params struct {
+		Template string `json:"template"`
+	}
+	if err := c.decode(&params); err != nil {
+		return nil, err
+	}
+	if params.Template != "4orbit" {
+		return nil, status.Error(codes.InvalidArgument, `template must be "4orbit"`)
+	}
+	b := authz.DefaultBundle()
+	return map[string]any{"policies": b.Policies, "entities": b.Entities, "tests": authz.DefaultTests()}, nil
+}
+
+// loadTemplate saves the 4Orbit demo organization as a version (reusing an
+// identical existing one) and installs its permission-matrix test suite. It
+// does not activate. Used by the seed; the console uses getTemplate.
 func (p *Plugin) loadTemplate(ctx context.Context, c *call) (any, error) {
 	var params struct {
 		Template string `json:"template"`
@@ -666,7 +740,7 @@ func (p *Plugin) loadTemplate(ctx context.Context, c *call) (any, error) {
 	if params.Template != "4orbit" {
 		return nil, status.Error(codes.InvalidArgument, `template must be "4orbit"`)
 	}
-	out, err := p.save(ctx, c, authz.DefaultBundle(), "4Orbit demo organization template")
+	out, err := p.save(ctx, c, authz.DefaultBundle(), "4Orbit demo organization template", false)
 	if err != nil {
 		return nil, err
 	}

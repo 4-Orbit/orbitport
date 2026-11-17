@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useState } from "react";
 import { api } from "../api.ts";
 import { usePolling } from "../usePolling.ts";
@@ -21,6 +22,9 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
 
   return (
     <>
+      <Intro page="activity" title="Activity: what actually happened">
+        Every request agents made to the KMS, newest first: who asked, what, on which key, whether the <Term k="active">active version</Term>'s rules allowed it, and which rule decided. A DENY never reaches the key. Click a row for details, or replay it in the simulator.
+      </Intro>
       {audit.error && <div className="banner banner-error inline-banner">Could not load audit: {audit.error}</div>}
       {audit.data && <SummaryStrip summary={audit.data.summary} agents={principals} />}
       <Filters filter={filter} onChange={setFilter} />

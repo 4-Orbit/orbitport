@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { RulesView } from "../components/RulesView.tsx";
 import { ConfirmButton, Toast, type ToastState } from "../components/Confirm.tsx";
+import { DraftStatus } from "../components/DraftStatus.tsx";
+import { Intro, Term } from "../components/Help.tsx";
 import { api } from "../api.ts";
 import { entityIds, rolesOf, useDraft } from "../draft.tsx";
-import type { CellChange, EntityJson, ValidateResult } from "../types.ts";
+import type { CellChange, EntityJson, TestCase, ValidateResult } from "../types.ts";
 import { appendSnippet, CedarEditor } from "../components/CedarEditor.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
-import { useKeys, useSchema } from "./shared.ts";
+import { useKeys, useSchema, useVersionState } from "./shared.ts";
 
 type Mode = "rules" | "cedar";
 const MODE_KEY = "orbitport-console-policy-mode";
@@ -79,8 +81,17 @@ export function PoliciesPage() {
       // per-viewer preference only
     }
   };
-  const announce = (text: string) => setToast({ text, undo: true });
-  const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  // Plain status messages describe the moment they were shown, so any further
+  // draft edit clears them; messages asking a question stay until answered.
+  const clearStaleStatus = () => setStatus((s) => (s?.actions?.length ? s : null));
+  const announce = (text: string) => {
+    clearStaleStatus();
+    setToast({ text, undo: true });
+  };
+  const [status, setStatus] = useState<Status | null>(null);
+  const [versionsTick, setVersionsTick] = useState(0);
+  const versionState = useVersionState(versionsTick);
+  const [decisionChanges, setDecisionChanges] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [changes, setChanges] = useState<CellChange[] | null>(null);
   const [showPlatform, setShowPlatform] = useState(false);
@@ -105,6 +116,23 @@ export function PoliciesPage() {
     return () => clearTimeout(t);
   }, [draft.bundle, draft.policies]);
 
+  // How many decisions the draft changes vs the active version (status strip).
+  useEffect(() => {
+    if (!validation?.ok) return;
+    setDecisionChanges(null);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .diff(undefined, { draft: draft.bundle })
+        .then((r) => !cancelled && setDecisionChanges(r.changes.length))
+        .catch(() => !cancelled && setDecisionChanges(null));
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [validation, draft.bundle, versionState.active]);
+
   // Undo / redo from the keyboard, except where the field has its own
   // (the Cedar editor keeps per-keystroke undo).
   useEffect(() => {
@@ -122,11 +150,11 @@ export function PoliciesPage() {
     try {
       const a = await api.active();
       if (a.exists && a.version) {
-        draft.load({ policies: a.version.policies, entities: a.version.entities }, a.version.version, `load active v${a.version.version}`);
-        setStatus({ tone: "ok", text: `Loaded active version ${a.version.version}.` });
+        draft.load({ policies: a.version.policies, entities: a.version.entities }, a.version.version, `start from active v${a.version.version}`);
+        setStatus({ tone: "ok", text: `Your draft now matches the active version v${a.version.version}. Nothing was saved.` });
       } else {
-        draft.load({ policies: "", entities: [] }, null, "start a new draft");
-        setStatus({ tone: "ok", text: "No active version yet: start writing, or load the 4Orbit template." });
+        draft.load({ policies: "", entities: [] }, null, "start an empty draft");
+        setStatus({ tone: "ok", text: "No version is active yet. Start writing rules, or start from the 4Orbit template." });
       }
       setChanges(null);
     } catch (e) {
@@ -134,23 +162,59 @@ export function PoliciesPage() {
     }
   }
 
+  /** Loads the template into the draft only. Its tests are offered, never written silently. */
   async function loadTemplate() {
     try {
-      const r = await api.loadTemplate();
-      const v = await api.version(r.version);
-      draft.load({ policies: v.version.policies, entities: v.version.entities }, r.version, "load the 4Orbit template");
-      setStatus({ tone: "ok", text: `Saved the 4Orbit template as version ${r.version} with its ${r.tests}-case test suite. Activate it on the Versions page.` });
+      const [t, current] = await Promise.all([api.template(), api.tests()]);
+      draft.load({ policies: t.policies, entities: t.entities }, null, "start from the 4Orbit template");
+      setChanges(null);
+      offerTemplateTests(t.tests, current.tests);
     } catch (e) {
       setStatus({ tone: "error", text: (e as Error).message });
     }
   }
 
-  async function save() {
+  function offerTemplateTests(templateTests: TestCase[], current: TestCase[]) {
+    const same = JSON.stringify(templateTests) === JSON.stringify(current);
+    setStatus({
+      tone: "ok",
+      text: same
+        ? "Your draft now contains the 4Orbit template (not saved yet). Your test suite already matches the template's."
+        : `Your draft now contains the 4Orbit template (not saved yet). The template also comes with ${templateTests.length} tests (the 4Orbit permission matrix); you have ${current.length}.`,
+      actions: same
+        ? []
+        : [
+            {
+              label: current.length ? `Replace my ${current.length} tests with the template's` : `Install the template's ${templateTests.length} tests`,
+              danger: current.length > 0,
+              run: async () => {
+                await api.putTests(templateTests);
+                setStatus({ tone: "ok", text: `Test suite replaced with the template's ${templateTests.length} tests. (Tests are saved on the server immediately; Undo in the editor doesn't affect them.)` });
+              },
+            },
+            { label: "Keep my tests", run: async () => setStatus(null) },
+          ],
+    });
+  }
+
+  async function save(allowDuplicate = false) {
     try {
-      const r = await api.saveDraft(draft.bundle, message.trim());
+      const r = await api.saveDraft(draft.bundle, message.trim(), allowDuplicate);
       draft.markSaved(r.version);
+      setVersionsTick((x) => x + 1);
+      if (r.duplicate) {
+        setStatus({
+          tone: "ok",
+          text: `Nothing new was saved: your draft is identical to version ${r.version}.`,
+          actions: [
+            { label: `Go to v${r.version} on Versions`, run: async () => void (window.location.hash = "#/versions") },
+            { label: "Save a separate copy anyway", run: async () => save(true) },
+          ],
+        });
+        return;
+      }
       setMessage("");
-      setStatus({ tone: "ok", text: `Saved as version ${r.version}. It is not enforced until you activate it on the Versions page.` });
+      setStatus({ tone: "ok", text: `Saved as version ${r.version}. It isn't enforced until you activate it on the Versions page.` });
     } catch (e) {
       setStatus({ tone: "error", text: (e as Error).message });
     }
@@ -170,6 +234,11 @@ export function PoliciesPage() {
 
   return (
     <div className="policies-page">
+      <Intro page="policies" title="Policies: edit your draft">
+        Changes here go into your <Term k="draft" />, which only you see and which isn't enforced. <strong>Save as new version</strong> keeps a permanent copy;
+        nothing changes for agents until you <Term k="activate">activate</Term> a version on the Versions page. Write <Term k="rule">rules</Term> as plain-language forms or as
+        Cedar code; both edit the same draft.
+      </Intro>
       <section className="panel toolbar">
         <div className="segmented mode-switch" role="group" aria-label="Editor">
           <button type="button" aria-pressed={mode === "rules"} onClick={() => setMode("rules")}>
@@ -187,12 +256,8 @@ export function PoliciesPage() {
             ↷ Redo
           </button>
         </span>
-        <button type="button" className="button" onClick={() => void loadActive()}>
-          Load active
-        </button>
-        <button type="button" className="button" onClick={() => void loadTemplate()}>
-          Load 4Orbit template
-        </button>
+        <ReplaceDraftButton label="Start from active" dirty={draft.dirty} onRun={() => void loadActive()} />
+        <ReplaceDraftButton label="Start from 4Orbit template" dirty={draft.dirty} onRun={() => void loadTemplate()} />
         {mode === "cedar" && (
         <label className="field inline">
           <span>Insert snippet</span>
@@ -200,7 +265,10 @@ export function PoliciesPage() {
             value=""
             onChange={(e) => {
               const s = SNIPPETS[Number(e.target.value)];
-              if (s) draft.commit({ policies: appendSnippet(draft.policies, s.text) }, `insert snippet “${s.label}”`);
+              if (s) {
+                draft.commit({ policies: appendSnippet(draft.policies, s.text) }, `insert snippet “${s.label}”`);
+                clearStaleStatus();
+              }
             }}
           >
             <option value="">choose…</option>
@@ -212,13 +280,18 @@ export function PoliciesPage() {
           </select>
         </label>
         )}
-        <span className="muted small">
-          {draft.base ? `based on v${draft.base}` : "new draft"}
-          {draft.dirty ? " · edited" : ""}
-        </span>
       </section>
 
-      {status && <div className={`banner inline-banner ${status.tone === "error" ? "banner-error" : "banner-ok"}`}>{status.text}</div>}
+      <DraftStatus
+        dirty={draft.dirty}
+        base={draft.base}
+        active={versionState.active}
+        known={versionState.loaded}
+        valid={validation?.ok ?? true}
+        empty={draft.policies.trim() === "" && draft.entities.length === 0}
+        changes={decisionChanges}
+      />
+      {status && <StatusBanner status={status} onClose={() => setStatus(null)} />}
       <Toast toast={toast} onUndo={draft.undo} onClose={() => setToast(null)} />
 
       <div className="editor-grid">
@@ -232,7 +305,16 @@ export function PoliciesPage() {
               <RulesView validation={validation} validatedText={checked?.text ?? ""} keys={keys.data ?? []} onEditCedar={() => setMode("cedar")} onChanged={announce} />
             ) : (
               <>
-                <CedarEditor label="Tenant Cedar policies" value={draft.policies} onChange={draft.setPolicies} problems={problems} minHeight="420px" />
+                <CedarEditor
+                  label="Tenant Cedar policies"
+                  value={draft.policies}
+                  onChange={(text) => {
+                    draft.setPolicies(text);
+                    clearStaleStatus();
+                  }}
+                  problems={problems}
+                  minHeight="420px"
+                />
                 <Problems validation={validation} />
               </>
             )}
@@ -249,9 +331,23 @@ export function PoliciesPage() {
             </header>
             <div className="panel-body">
               {entitiesJson ? (
-                <EntitiesJson entities={draft.entities} onChange={(e) => draft.setEntities(e, "edit entities JSON")} />
+                <EntitiesJson
+                  entities={draft.entities}
+                  onChange={(e) => {
+                    draft.setEntities(e, "edit entities JSON");
+                    clearStaleStatus();
+                  }}
+                />
               ) : (
-                <EntitiesTable entities={draft.entities} policies={draft.policies} onChange={draft.setEntities} onRemoved={announce} />
+                <EntitiesTable
+                  entities={draft.entities}
+                  policies={draft.policies}
+                  onChange={(e, label) => {
+                    draft.setEntities(e, label);
+                    clearStaleStatus();
+                  }}
+                  onRemoved={announce}
+                />
               )}
             </div>
           </section>
@@ -266,7 +362,7 @@ export function PoliciesPage() {
                 <input value={message} maxLength={500} placeholder="what changed and why" onChange={(e) => setMessage(e.target.value)} />
               </label>
               <div className="row">
-                <button type="button" className="button primary" disabled={errors.length > 0 || !validation?.ok} onClick={() => void save()}>
+                <button type="button" className="button primary" disabled={errors.length > 0 || !validation?.ok} onClick={() => void save()} title="Creates a permanent version. Doesn't change what's enforced.">
                   Save as new version
                 </button>
                 <button type="button" className="button" disabled={!validation?.ok} onClick={() => void diffAgainstActive()}>
@@ -456,5 +552,67 @@ function EntitiesJson({ entities, onChange }: { entities: EntityJson[]; onChange
       />
       {error && <p className="test-error small">{error}</p>}
     </div>
+  );
+}
+
+interface StatusAction {
+  label: string;
+  danger?: boolean;
+  run: () => Promise<void>;
+}
+
+interface Status {
+  tone: "ok" | "error";
+  text: string;
+  actions?: StatusAction[];
+}
+
+function StatusBanner({ status, onClose }: { status: Status; onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className={`banner inline-banner status-banner ${status.tone === "error" ? "banner-error" : "banner-ok"}`} role="status">
+      <span>{status.text}</span>
+      {status.actions?.map((a) => (
+        <button
+          key={a.label}
+          type="button"
+          className={`button small${a.danger ? " danger" : ""}`}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await a.run();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {a.label}
+        </button>
+      ))}
+      <button type="button" className="icon-button" aria-label="Dismiss" onClick={onClose}>
+        ×
+      </button>
+    </div>
+  );
+}
+
+/** Replaces the draft; asks first when there are unsaved edits (Undo still works). */
+function ReplaceDraftButton({ label, dirty, onRun }: { label: string; dirty: boolean; onRun: () => void }) {
+  if (!dirty) {
+    return (
+      <button type="button" className="button" onClick={onRun} title="Replaces your draft. Nothing is saved.">
+        {label}
+      </button>
+    );
+  }
+  return (
+    <ConfirmButton
+      className="button"
+      label={label}
+      confirmLabel="Replace my draft"
+      impact="Your unsaved edits will be replaced (Undo brings them back)."
+      onConfirm={onRun}
+    />
   );
 }

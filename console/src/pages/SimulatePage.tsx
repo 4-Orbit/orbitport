@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.ts";
 import { entityIds, useDraft } from "../draft.tsx";
@@ -103,6 +104,9 @@ export function SimulatePage() {
 
   return (
     <div className="simulate-page">
+      <Intro page="simulate" title="Simulate: ask “would this be allowed?”">
+        Try any agent, action and key against your <Term k="draft" />, the active version or any saved version, optionally at a <Term k="simulatedTime">simulated time</Term>. Nothing here touches the KMS. Save useful answers as <Term k="test">tests</Term>.
+      </Intro>
       <section className="panel">
         <header className="panel-head">
           <h2>Ask Cedar</h2>

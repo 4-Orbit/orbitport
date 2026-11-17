@@ -9,6 +9,7 @@ import { SimulatePage } from "./pages/SimulatePage.tsx";
 import { TestsPage } from "./pages/TestsPage.tsx";
 import { VersionsPage } from "./pages/VersionsPage.tsx";
 import { AgentsPage } from "./pages/AgentsPage.tsx";
+import { HelpPage } from "./pages/HelpPage.tsx";
 
 const TABS: { page: Page; label: string }[] = [
   { page: "activity", label: "Activity" },
@@ -33,6 +34,11 @@ export function App() {
       .catch(() => setActiveVersion(null));
   }, [tick, health.updatedAt]);
 
+  // A new page starts at the top (hash navigation keeps the old scroll).
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [route.page]);
+
   const h = health.data;
   return (
     <div className="app">
@@ -49,6 +55,9 @@ export function App() {
           ))}
         </nav>
         <div className="topbar-status">
+          <a href="#/help" className="help-link" aria-current={route.page === "help" ? "page" : undefined}>
+            ? Help
+          </a>
           <span className="muted">
             Active policy <span className="mono">{activeVersion ? `v${activeVersion}` : "none"}</span>
           </span>
@@ -76,6 +85,7 @@ export function App() {
         {route.page === "tests" && <TestsPage />}
         {route.page === "versions" && <VersionsPage onActivated={() => setTick((x) => x + 1)} />}
         {route.page === "agents" && <AgentsPage />}
+        {route.page === "help" && <HelpPage />}
       </main>
     </div>
   );

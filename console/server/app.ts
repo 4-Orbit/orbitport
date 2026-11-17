@@ -27,6 +27,7 @@ export const ALLOWED_METHODS = new Set([
   "policy.ListVersions",
   "policy.GetVersion",
   "policy.GetTests",
+  "policy.GetTemplate",
   "policy.ListAudit",
   "policy.ListKeys",
   "policy.Validate",
