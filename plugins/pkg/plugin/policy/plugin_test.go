@@ -104,6 +104,15 @@ func TestValidateReportsProblemsAndSummary(t *testing.T) {
 	assert.Equal(t, true, good["ok"])
 	summary := good["summary"].(map[string]any)
 	assert.Len(t, summary["policyIds"], 6)
+	described := good["policies"].([]any)
+	require.Len(t, described, 6)
+	first := described[0].(map[string]any)
+	assert.Equal(t, "developer-encrypt-demo-key", first["id"])
+	assert.Equal(t, "permit", first["effect"])
+	assert.NotNil(t, first["json"])
+
+	unparseable := mustCall(t, p, "policy.Validate", map[string]any{"policies": `@id("x") permit (`})
+	assert.Nil(t, unparseable["policies"])
 }
 
 func TestSaveDraftRejectsInvalidBundle(t *testing.T) {

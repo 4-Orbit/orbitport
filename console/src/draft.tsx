@@ -1,24 +1,19 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import type { Bundle, EntityJson, SimRequest } from "./types.ts";
-
-/**
- * The working draft shared by the Policies, Simulate, Access and Tests pages.
- * It is a per-viewer convenience kept in localStorage; the server holds only
- * saved versions.
- */
-interface DraftState {
-  policies: string;
-  entities: EntityJson[];
-  /** Version the draft was loaded from; null for a fresh draft. */
-  base: number | null;
-  /** True once edited since loading. */
-  dirty: boolean;
-}
+import { draftReducer, type DraftState, type Snapshot } from "./draft-history.ts";
 
 interface DraftApi extends DraftState {
+  /** Typing in the Cedar editor (merged into one undo step per pause). */
   setPolicies: (text: string) => void;
-  setEntities: (entities: EntityJson[]) => void;
-  load: (bundle: Bundle, base: number | null) => void;
+  /** A discrete, labeled change ("delete rule x", "add agent y"). */
+  commit: (next: Partial<Snapshot>, label: string) => void;
+  setEntities: (entities: EntityJson[], label?: string) => void;
+  load: (bundle: Bundle, base: number | null, label?: string) => void;
+  markSaved: (base: number) => void;
+  undo: () => void;
+  redo: () => void;
+  undoLabel: string | null;
+  redoLabel: string | null;
   bundle: Bundle;
   /** A request queued for the simulator (Activity replay, Access cell). */
   pendingSim: SimRequest | null;
@@ -43,24 +38,43 @@ function loadStored(): DraftState {
 const Ctx = createContext<DraftApi | null>(null);
 
 export function DraftProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<DraftState>(loadStored);
+  const [store, dispatch] = useReducer(draftReducer, undefined, () => ({ draft: loadStored(), past: [], future: [], lastTypingAt: 0 }));
   const [pendingSim, setPendingSim] = useState<SimRequest | null>(null);
+  const { draft } = store;
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
     } catch {
       // storage unavailable (private window): the draft lives in memory only
     }
-  }, [state]);
+  }, [draft]);
 
-  const setPolicies = useCallback((policies: string) => setState((s) => ({ ...s, policies, dirty: true })), []);
-  const setEntities = useCallback((entities: EntityJson[]) => setState((s) => ({ ...s, entities, dirty: true })), []);
-  const load = useCallback((bundle: Bundle, base: number | null) => setState({ policies: bundle.policies, entities: bundle.entities ?? [], base, dirty: false }), []);
+  const setPolicies = useCallback((policies: string) => dispatch({ type: "type", policies, at: Date.now() }), []);
+  const commit = useCallback((next: Partial<Snapshot>, label: string) => dispatch({ type: "commit", next, label }), []);
+  const setEntities = useCallback((entities: EntityJson[], label = "edit agents & roles") => dispatch({ type: "commit", next: { entities }, label }), []);
+  const load = useCallback((bundle: Bundle, base: number | null, label = "load") => dispatch({ type: "load", bundle, base, label }), []);
+  const markSaved = useCallback((base: number) => dispatch({ type: "markSaved", base }), []);
+  const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const redo = useCallback(() => dispatch({ type: "redo" }), []);
 
   const value = useMemo<DraftApi>(
-    () => ({ ...state, setPolicies, setEntities, load, bundle: { policies: state.policies, entities: state.entities }, pendingSim, setPendingSim }),
-    [state, setPolicies, setEntities, load, pendingSim],
+    () => ({
+      ...draft,
+      setPolicies,
+      commit,
+      setEntities,
+      load,
+      markSaved,
+      undo,
+      redo,
+      undoLabel: store.past.at(-1)?.label ?? null,
+      redoLabel: store.future.at(-1)?.label ?? null,
+      bundle: { policies: draft.policies, entities: draft.entities },
+      pendingSim,
+      setPendingSim,
+    }),
+    [draft, store.past, store.future, setPolicies, commit, setEntities, load, markSaved, undo, redo, pendingSim],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -79,3 +93,4 @@ export function entityIds(entities: EntityJson[], type: "Agent" | "Role"): strin
 export function rolesOf(entities: EntityJson[], agentId: string): string[] {
   return (entities.find((e) => e.uid.type === "Agent" && e.uid.id === agentId)?.parents ?? []).filter((p) => p.type === "Role").map((p) => p.id);
 }
+

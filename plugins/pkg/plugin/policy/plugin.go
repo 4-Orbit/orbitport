@@ -418,7 +418,9 @@ func (p *Plugin) validate(_ context.Context, c *call) (any, error) {
 	if problems == nil {
 		problems = []authz.Problem{}
 	}
-	out := map[string]any{"ok": compiled != nil, "problems": problems}
+	// policies is null when the text does not parse, otherwise one entry per
+	// policy (even if it fails schema validation) for the plain-language view.
+	out := map[string]any{"ok": compiled != nil, "problems": problems, "policies": authz.Describe(b.Policies)}
 	if compiled != nil {
 		out["summary"] = summarize(compiled)
 	}

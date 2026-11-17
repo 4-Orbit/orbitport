@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
+import { RulesView } from "../components/RulesView.tsx";
+import { ConfirmButton, Toast, type ToastState } from "../components/Confirm.tsx";
 import { api } from "../api.ts";
 import { entityIds, rolesOf, useDraft } from "../draft.tsx";
 import type { CellChange, EntityJson, ValidateResult } from "../types.ts";
 import { appendSnippet, CedarEditor } from "../components/CedarEditor.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
-import { useSchema } from "./shared.ts";
+import { useKeys, useSchema } from "./shared.ts";
+
+type Mode = "rules" | "cedar";
+const MODE_KEY = "orbitport-console-policy-mode";
+
+function storedMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "cedar" ? "cedar" : "rules";
+  } catch {
+    return "rules";
+  }
+}
+
+const typingTarget = (t: EventTarget | null) => t instanceof HTMLElement && (t.closest(".cm-editor") !== null || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -51,7 +66,20 @@ permit (principal == Agent::"security-agent", action == Action::"kms.RotateKey",
 export function PoliciesPage() {
   const draft = useDraft();
   const schema = useSchema();
-  const [validation, setValidation] = useState<ValidateResult | null>(null);
+  const keys = useKeys();
+  const [checked, setChecked] = useState<{ text: string; result: ValidateResult } | null>(null);
+  const validation = checked?.result ?? null;
+  const [mode, setModeState] = useState<Mode>(storedMode);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // per-viewer preference only
+    }
+  };
+  const announce = (text: string) => setToast({ text, undo: true });
   const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [message, setMessage] = useState("");
   const [changes, setChanges] = useState<CellChange[] | null>(null);
@@ -64,25 +92,40 @@ export function PoliciesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced live validation with the enforcement engine.
+  // Debounced live validation with the enforcement engine. The result keeps
+  // the exact text it describes, because rule cards edit by text position.
   useEffect(() => {
+    const text = draft.policies;
     const t = setTimeout(() => {
       api
         .validate(draft.bundle)
-        .then(setValidation)
-        .catch((e: Error) => setValidation({ ok: false, problems: [{ severity: "error", message: e.message }] }));
+        .then((result) => setChecked({ text, result }))
+        .catch((e: Error) => setChecked({ text, result: { ok: false, problems: [{ severity: "error", message: e.message }] } }));
     }, 350);
     return () => clearTimeout(t);
-  }, [draft.bundle]);
+  }, [draft.bundle, draft.policies]);
+
+  // Undo / redo from the keyboard, except where the field has its own
+  // (the Cedar editor keeps per-keystroke undo).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || typingTarget(e.target)) return;
+      e.preventDefault();
+      if (e.shiftKey) draft.redo();
+      else draft.undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [draft]);
 
   async function loadActive() {
     try {
       const a = await api.active();
       if (a.exists && a.version) {
-        draft.load({ policies: a.version.policies, entities: a.version.entities }, a.version.version);
+        draft.load({ policies: a.version.policies, entities: a.version.entities }, a.version.version, `load active v${a.version.version}`);
         setStatus({ tone: "ok", text: `Loaded active version ${a.version.version}.` });
       } else {
-        draft.load({ policies: "", entities: [] }, null);
+        draft.load({ policies: "", entities: [] }, null, "start a new draft");
         setStatus({ tone: "ok", text: "No active version yet: start writing, or load the 4Orbit template." });
       }
       setChanges(null);
@@ -95,7 +138,7 @@ export function PoliciesPage() {
     try {
       const r = await api.loadTemplate();
       const v = await api.version(r.version);
-      draft.load({ policies: v.version.policies, entities: v.version.entities }, r.version);
+      draft.load({ policies: v.version.policies, entities: v.version.entities }, r.version, "load the 4Orbit template");
       setStatus({ tone: "ok", text: `Saved the 4Orbit template as version ${r.version} with its ${r.tests}-case test suite. Activate it on the Versions page.` });
     } catch (e) {
       setStatus({ tone: "error", text: (e as Error).message });
@@ -105,7 +148,7 @@ export function PoliciesPage() {
   async function save() {
     try {
       const r = await api.saveDraft(draft.bundle, message.trim());
-      draft.load(draft.bundle, r.version);
+      draft.markSaved(r.version);
       setMessage("");
       setStatus({ tone: "ok", text: `Saved as version ${r.version}. It is not enforced until you activate it on the Versions page.` });
     } catch (e) {
@@ -128,19 +171,36 @@ export function PoliciesPage() {
   return (
     <div className="policies-page">
       <section className="panel toolbar">
+        <div className="segmented mode-switch" role="group" aria-label="Editor">
+          <button type="button" aria-pressed={mode === "rules"} onClick={() => setMode("rules")}>
+            Plain language
+          </button>
+          <button type="button" aria-pressed={mode === "cedar"} onClick={() => setMode("cedar")}>
+            Cedar code
+          </button>
+        </div>
+        <span className="row">
+          <button type="button" className="button" disabled={!draft.undoLabel} title={draft.undoLabel ? `Undo: ${draft.undoLabel} (⌘Z)` : "Nothing to undo"} onClick={draft.undo}>
+            ↶ Undo
+          </button>
+          <button type="button" className="button" disabled={!draft.redoLabel} title={draft.redoLabel ? `Redo: ${draft.redoLabel} (⇧⌘Z)` : "Nothing to redo"} onClick={draft.redo}>
+            ↷ Redo
+          </button>
+        </span>
         <button type="button" className="button" onClick={() => void loadActive()}>
           Load active
         </button>
         <button type="button" className="button" onClick={() => void loadTemplate()}>
           Load 4Orbit template
         </button>
+        {mode === "cedar" && (
         <label className="field inline">
           <span>Insert snippet</span>
           <select
             value=""
             onChange={(e) => {
               const s = SNIPPETS[Number(e.target.value)];
-              if (s) draft.setPolicies(appendSnippet(draft.policies, s.text));
+              if (s) draft.commit({ policies: appendSnippet(draft.policies, s.text) }, `insert snippet “${s.label}”`);
             }}
           >
             <option value="">choose…</option>
@@ -151,6 +211,7 @@ export function PoliciesPage() {
             ))}
           </select>
         </label>
+        )}
         <span className="muted small">
           {draft.base ? `based on v${draft.base}` : "new draft"}
           {draft.dirty ? " · edited" : ""}
@@ -158,16 +219,23 @@ export function PoliciesPage() {
       </section>
 
       {status && <div className={`banner inline-banner ${status.tone === "error" ? "banner-error" : "banner-ok"}`}>{status.text}</div>}
+      <Toast toast={toast} onUndo={draft.undo} onClose={() => setToast(null)} />
 
       <div className="editor-grid">
         <section className="panel">
           <header className="panel-head">
-            <h2>Tenant policies</h2>
+            <h2>{mode === "rules" ? "Rules" : "Tenant policies (Cedar)"}</h2>
             <ValidityBadge validation={validation} />
           </header>
           <div className="panel-body">
-            <CedarEditor label="Tenant Cedar policies" value={draft.policies} onChange={draft.setPolicies} problems={problems} minHeight="420px" />
-            <Problems validation={validation} />
+            {mode === "rules" ? (
+              <RulesView validation={validation} validatedText={checked?.text ?? ""} keys={keys.data ?? []} onEditCedar={() => setMode("cedar")} onChanged={announce} />
+            ) : (
+              <>
+                <CedarEditor label="Tenant Cedar policies" value={draft.policies} onChange={draft.setPolicies} problems={problems} minHeight="420px" />
+                <Problems validation={validation} />
+              </>
+            )}
           </div>
         </section>
 
@@ -180,7 +248,11 @@ export function PoliciesPage() {
               </button>
             </header>
             <div className="panel-body">
-              {entitiesJson ? <EntitiesJson entities={draft.entities} onChange={draft.setEntities} /> : <EntitiesTable entities={draft.entities} onChange={draft.setEntities} />}
+              {entitiesJson ? (
+                <EntitiesJson entities={draft.entities} onChange={(e) => draft.setEntities(e, "edit entities JSON")} />
+              ) : (
+                <EntitiesTable entities={draft.entities} policies={draft.policies} onChange={draft.setEntities} onRemoved={announce} />
+              )}
             </div>
           </section>
 
@@ -267,31 +339,45 @@ function ChangeList({ changes }: { changes: CellChange[] }) {
   );
 }
 
-function EntitiesTable({ entities, onChange }: { entities: EntityJson[]; onChange: (e: EntityJson[]) => void }) {
+function EntitiesTable({ entities, policies, onChange, onRemoved }: { entities: EntityJson[]; policies: string; onChange: (e: EntityJson[], label: string) => void; onRemoved: (message: string) => void }) {
   const roles = entityIds(entities, "Role");
   const agents = entityIds(entities, "Agent");
   const [newAgent, setNewAgent] = useState("");
   const [newRole, setNewRole] = useState("");
 
   const toggle = (agent: string, role: string) => {
+    const has = rolesOf(entities, agent).includes(role);
     onChange(
       entities.map((e) => {
         if (e.uid.type !== "Agent" || e.uid.id !== agent) return e;
         const has = e.parents.some((p) => p.type === "Role" && p.id === role);
         return { ...e, parents: has ? e.parents.filter((p) => !(p.type === "Role" && p.id === role)) : [...e.parents, { type: "Role", id: role }] };
       }),
+      `${has ? "remove" : "give"} ${agent} ${has ? "from" : "the"} ${role} role`,
     );
   };
   const add = (type: "Agent" | "Role", id: string) => {
     if (!ID_RE.test(id) || entities.some((e) => e.uid.type === type && e.uid.id === id)) return;
-    onChange([...entities, { uid: { type, id }, attrs: {}, parents: [] }]);
+    onChange([...entities, { uid: { type, id }, attrs: {}, parents: [] }], `add ${type.toLowerCase()} ${id}`);
   };
   const remove = (type: "Agent" | "Role", id: string) => {
     onChange(
       entities
         .filter((e) => !(e.uid.type === type && e.uid.id === id))
         .map((e) => (type === "Role" ? { ...e, parents: e.parents.filter((p) => !(p.type === "Role" && p.id === id)) } : e)),
+      `delete ${type.toLowerCase()} ${id}`,
     );
+    onRemoved(`Deleted ${type.toLowerCase()} ${id}.`);
+  };
+  /** What removing an agent or role affects, in words. */
+  const impact = (type: "Agent" | "Role", id: string) => {
+    const rules = (policies.match(new RegExp(`${type}::"${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`, "g")) ?? []).length;
+    const members = type === "Role" ? agents.filter((a) => rolesOf(entities, a).includes(id)) : [];
+    const parts = [
+      members.length ? `${members.join(", ")} will lose this role` : "",
+      rules ? `${rules} rule${rules === 1 ? "" : "s"} name${rules === 1 ? "s" : ""} it and will match nobody` : "",
+    ].filter(Boolean);
+    return parts.length ? `${parts.join("; ")}.` : "Nothing uses it.";
   };
 
   return (
@@ -303,10 +389,7 @@ function EntitiesTable({ entities, onChange }: { entities: EntityJson[]; onChang
             <th>Agent</th>
             {roles.map((r) => (
               <th key={r}>
-                {r}{" "}
-                <button type="button" className="link-button" aria-label={`Remove role ${r}`} onClick={() => remove("Role", r)}>
-                  ×
-                </button>
+                {r} <ConfirmButton label="×" ariaLabel={`Remove role ${r}`} confirmLabel={`Delete role ${r}`} impact={impact("Role", r)} onConfirm={() => remove("Role", r)} />
               </th>
             ))}
             <th />
@@ -324,9 +407,7 @@ function EntitiesTable({ entities, onChange }: { entities: EntityJson[]; onChang
                   </td>
                 ))}
                 <td>
-                  <button type="button" className="link-button" aria-label={`Remove agent ${a}`} onClick={() => remove("Agent", a)}>
-                    remove
-                  </button>
+                  <ConfirmButton label="remove" ariaLabel={`Remove agent ${a}`} confirmLabel={`Delete agent ${a}`} impact={impact("Agent", a)} onConfirm={() => remove("Agent", a)} />
                 </td>
               </tr>
             );
