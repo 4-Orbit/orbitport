@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import type { IssuedToken, Version } from "../types.ts";
@@ -47,6 +48,9 @@ export function AgentsPage() {
 
   return (
     <>
+      <Intro page="agents" title="Agents: who calls the KMS">
+        Agents and their <Term k="role">roles</Term> come from the active version (edit them on Policies). Mint a short-lived <Term k="agentToken">agent token</Term> to let an AI agent call the KMS. Your rules apply to every request it makes.
+      </Intro>
       <section className="panel">
         <header className="panel-head">
           <h2>Registered agents</h2>

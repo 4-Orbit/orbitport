@@ -126,9 +126,21 @@ export interface Problem {
   message: string;
 }
 
+/** One policy as the engine parsed it; start/end index the source text. */
+export interface PolicyInfo {
+  id: string;
+  effect: "permit" | "forbid";
+  json: unknown;
+  start: number;
+  end: number;
+  line: number;
+}
+
 export interface ValidateResult {
   ok: boolean;
   problems: Problem[];
+  /** null when the text does not parse. */
+  policies?: PolicyInfo[] | null;
   summary?: { policyIds: string[]; agents: string[]; roles: string[]; agentRoles: Record<string, string[]>; referencedKeys: string[] };
 }
 

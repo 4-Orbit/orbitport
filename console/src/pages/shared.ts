@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
-import type { KeyInfo, SchemaInfo } from "../types.ts";
+import type { KeyInfo, SchemaInfo, VersionInfo } from "../types.ts";
 
 /** Saved version numbers, newest first. */
 export function useVersions(refreshKey = 0): number[] {
@@ -30,4 +30,22 @@ export function useSchema(): SchemaInfo | null {
     });
   }, []);
   return schema;
+}
+
+/** The active version number (null = none) and the saved versions, refetched when refreshKey changes. */
+export function useVersionState(refreshKey = 0): { active: number | null; versions: VersionInfo[]; loaded: boolean } {
+  const [state, setState] = useState<{ active: number | null; versions: VersionInfo[]; loaded: boolean }>({ active: null, versions: [], loaded: false });
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .versions()
+      .then((r) => {
+        if (!cancelled) setState({ versions: r.versions, active: r.versions.find((v) => v.active)?.version ?? null, loaded: true });
+      })
+      .catch(() => !cancelled && setState((s) => ({ ...s, loaded: true })));
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+  return state;
 }

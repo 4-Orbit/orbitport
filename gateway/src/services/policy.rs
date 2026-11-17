@@ -26,6 +26,7 @@ pub const POLICY_METHODS: &[&str] = &[
     "policy.ListVersions",
     "policy.GetVersion",
     "policy.GetTests",
+    "policy.GetTemplate",
     "policy.ListAudit",
     "policy.Validate",
     "policy.Simulate",

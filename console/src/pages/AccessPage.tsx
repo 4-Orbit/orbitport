@@ -1,3 +1,4 @@
+import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useState } from "react";
 import { api, keyResources } from "../api.ts";
 import { useDraft } from "../draft.tsx";
@@ -32,6 +33,9 @@ export function AccessPage() {
 
   return (
     <>
+      <Intro page="access" title="Access: who can do what">
+        Every registered <Term k="agent" /> × key × action, worked out from the rules. Green means allowed. Pick “Editor draft” to preview your unsaved changes, or a simulated time to see what changes after an expiry. Click a cell to see which rule decided.
+      </Intro>
       <section className="panel toolbar">
         <SourcePicker value={choice} onChange={setChoice} versions={versions} />
         <TimeTravel value={when} onChange={setWhen} />

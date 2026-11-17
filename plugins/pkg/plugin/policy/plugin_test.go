@@ -104,6 +104,15 @@ func TestValidateReportsProblemsAndSummary(t *testing.T) {
 	assert.Equal(t, true, good["ok"])
 	summary := good["summary"].(map[string]any)
 	assert.Len(t, summary["policyIds"], 6)
+	described := good["policies"].([]any)
+	require.Len(t, described, 6)
+	first := described[0].(map[string]any)
+	assert.Equal(t, "developer-encrypt-demo-key", first["id"])
+	assert.Equal(t, "permit", first["effect"])
+	assert.NotNil(t, first["json"])
+
+	unparseable := mustCall(t, p, "policy.Validate", map[string]any{"policies": `@id("x") permit (`})
+	assert.Nil(t, unparseable["policies"])
 }
 
 func TestSaveDraftRejectsInvalidBundle(t *testing.T) {
@@ -384,4 +393,55 @@ func TestBaoStoreConcurrentSavesGetDistinctVersions(t *testing.T) {
 		}(s)
 	}
 	wg.Wait()
+}
+
+func TestGetTemplateWritesNothing(t *testing.T) {
+	p := newTestPlugin(t)
+	out := mustCall(t, p, "policy.GetTemplate", map[string]any{"template": "4orbit"})
+	assert.Equal(t, authz.DefaultBundle().Policies, out["policies"])
+	assert.Len(t, out["tests"], len(authz.DefaultTests()))
+
+	versions := mustCall(t, p, "policy.ListVersions", map[string]any{})["versions"].([]any)
+	assert.Empty(t, versions, "loading the template must not create a version")
+	tests := mustCall(t, p, "policy.GetTests", map[string]any{})["tests"].([]any)
+	assert.Empty(t, tests, "loading the template must not touch the test suite")
+
+	_, err := callAs(t, p, "", "policy.GetTemplate", map[string]any{"template": "other"})
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	_, err = callAs(t, p, "developer-agent", "policy.GetTemplate", map[string]any{"template": "4orbit"})
+	assert.Equal(t, codes.PermissionDenied, status.Code(err), "agents can't read policy material")
+}
+
+func TestSaveDraftReusesIdenticalVersion(t *testing.T) {
+	p := newTestPlugin(t)
+	seed4orbit(t, p)
+	b := authz.DefaultBundle()
+
+	// Same text, entities in a different order: still identical.
+	var entities []any
+	require.NoError(t, json.Unmarshal(b.Entities, &entities))
+	for i, j := 0, len(entities)-1; i < j; i, j = i+1, j-1 {
+		entities[i], entities[j] = entities[j], entities[i]
+	}
+	again := mustCall(t, p, "policy.SaveDraft", map[string]any{"policies": b.Policies, "entities": entities, "message": "again"})
+	assert.Equal(t, true, again["duplicate"])
+	assert.EqualValues(t, 1, again["version"])
+
+	forced := mustCall(t, p, "policy.SaveDraft", map[string]any{"policies": b.Policies, "entities": entities, "allowDuplicate": true})
+	assert.Equal(t, false, forced["duplicate"])
+	assert.EqualValues(t, 2, forced["version"])
+
+	changed := mustCall(t, p, "policy.SaveDraft", map[string]any{"policies": b.Policies + "\n// note\n", "entities": entities})
+	assert.Equal(t, false, changed["duplicate"])
+	assert.EqualValues(t, 3, changed["version"])
+
+	// The seed's LoadTemplate also reuses the identical version.
+	re := mustCall(t, p, "policy.LoadTemplate", map[string]any{"template": "4orbit"})
+	assert.Equal(t, true, re["duplicate"])
+	assert.EqualValues(t, 1, re["version"], "the active version wins over newer identical copies")
+	mustCall(t, p, "policy.Activate", map[string]any{"version": 3, "force": true})
+	re = mustCall(t, p, "policy.LoadTemplate", map[string]any{"template": "4orbit"})
+	assert.EqualValues(t, 2, re["version"], "otherwise the newest identical version")
+	versions := mustCall(t, p, "policy.ListVersions", map[string]any{})["versions"].([]any)
+	assert.Len(t, versions, 3)
 }
