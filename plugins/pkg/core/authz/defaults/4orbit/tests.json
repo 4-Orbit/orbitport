@@ -1,0 +1,1080 @@
+[
+  {
+    "name": "developer-agent kms.Encrypt demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent kms.Encrypt dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent kms.Encrypt prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Encrypt unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.RotateKey demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.RotateKey dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.RotateKey prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.RotateKey unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.GetKeyMetadata demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.GetKeyMetadata dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.GetKeyMetadata prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.GetKeyMetadata unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.CreateKey demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.CreateKey dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.CreateKey prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.CreateKey unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Sign demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Sign dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Sign prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Sign unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Decrypt demo-key",
+    "agentId": "developer-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Decrypt dev-key",
+    "agentId": "developer-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Decrypt prod-key",
+    "agentId": "developer-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent kms.Decrypt unrelated-key",
+    "agentId": "developer-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Encrypt demo-key",
+    "agentId": "security-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Encrypt dev-key",
+    "agentId": "security-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Encrypt prod-key",
+    "agentId": "security-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Encrypt unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.RotateKey demo-key",
+    "agentId": "security-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent kms.RotateKey dev-key",
+    "agentId": "security-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent kms.RotateKey prod-key",
+    "agentId": "security-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent kms.RotateKey unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.GetKeyMetadata demo-key",
+    "agentId": "security-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.GetKeyMetadata dev-key",
+    "agentId": "security-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.GetKeyMetadata prod-key",
+    "agentId": "security-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.GetKeyMetadata unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.CreateKey demo-key",
+    "agentId": "security-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.CreateKey dev-key",
+    "agentId": "security-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.CreateKey prod-key",
+    "agentId": "security-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.CreateKey unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Sign demo-key",
+    "agentId": "security-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Sign dev-key",
+    "agentId": "security-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Sign prod-key",
+    "agentId": "security-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Sign unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Decrypt demo-key",
+    "agentId": "security-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Decrypt dev-key",
+    "agentId": "security-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Decrypt prod-key",
+    "agentId": "security-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent kms.Decrypt unrelated-key",
+    "agentId": "security-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Encrypt demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Encrypt dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Encrypt prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "deployment-agent kms.Encrypt unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.RotateKey demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.RotateKey dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.RotateKey prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.RotateKey unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.GetKeyMetadata demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.GetKeyMetadata dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.GetKeyMetadata prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.GetKeyMetadata unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.CreateKey demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.CreateKey dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.CreateKey prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.CreateKey unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Sign demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Sign dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Sign prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Sign unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Decrypt demo-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Decrypt dev-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Decrypt prod-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent kms.Decrypt unrelated-key",
+    "agentId": "deployment-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Encrypt demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Encrypt dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Encrypt prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Encrypt unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.RotateKey demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.RotateKey dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.RotateKey prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.RotateKey unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.RotateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.GetKeyMetadata demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.GetKeyMetadata dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.GetKeyMetadata prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.GetKeyMetadata unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.GetKeyMetadata",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.CreateKey demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.CreateKey dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.CreateKey prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.CreateKey unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.CreateKey",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Sign demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Sign dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Sign prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Sign unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Sign",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Decrypt demo-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Decrypt dev-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "dev-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Decrypt prod-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "prod-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "unknown-agent kms.Decrypt unrelated-key",
+    "agentId": "unknown-agent",
+    "action": "kms.Decrypt",
+    "resource": {
+      "type": "Key",
+      "id": "unrelated-key"
+    },
+    "at": 1700000000,
+    "expect": "DENY"
+  },
+  {
+    "name": "US5: developer demo-key one second before expiry",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1799999999,
+    "expect": "ALLOW"
+  },
+  {
+    "name": "US5: developer demo-key at expiry",
+    "agentId": "developer-agent",
+    "action": "kms.Encrypt",
+    "resource": {
+      "type": "Key",
+      "id": "demo-key"
+    },
+    "at": 1800000000,
+    "expect": "DENY"
+  }
+]

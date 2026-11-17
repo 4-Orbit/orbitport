@@ -29,7 +29,7 @@ var (
 	keyStoreSegmentRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
-func (p *Plugin) KeyStorePut(ctx context.Context, req *proto.KeyStorePutRequest) (*proto.KeyStorePutResponse, error) {
+func (p *Plugin) keyStorePutImpl(ctx context.Context, req *proto.KeyStorePutRequest) (*proto.KeyStorePutResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (p *Plugin) KeyStorePut(ctx context.Context, req *proto.KeyStorePutRequest)
 	return &proto.KeyStorePutResponse{Name: name, Version: version}, nil
 }
 
-func (p *Plugin) KeyStoreGet(ctx context.Context, req *proto.KeyStoreGetRequest) (*proto.KeyStoreGetResponse, error) {
+func (p *Plugin) keyStoreGetImpl(ctx context.Context, req *proto.KeyStoreGetRequest) (*proto.KeyStoreGetResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (p *Plugin) KeyStoreGet(ctx context.Context, req *proto.KeyStoreGetRequest)
 	return &proto.KeyStoreGetResponse{Name: name, SecretJson: secretJSON}, nil
 }
 
-func (p *Plugin) KeyStoreList(ctx context.Context, req *proto.KeyStoreListRequest) (*proto.KeyStoreListResponse, error) {
+func (p *Plugin) keyStoreListImpl(ctx context.Context, req *proto.KeyStoreListRequest) (*proto.KeyStoreListResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (p *Plugin) KeyStoreList(ctx context.Context, req *proto.KeyStoreListReques
 	return &proto.KeyStoreListResponse{Names: names}, nil
 }
 
-func (p *Plugin) KeyStoreDelete(ctx context.Context, req *proto.KeyStoreDeleteRequest) (*proto.KeyStoreDeleteResponse, error) {
+func (p *Plugin) keyStoreDeleteImpl(ctx context.Context, req *proto.KeyStoreDeleteRequest) (*proto.KeyStoreDeleteResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}

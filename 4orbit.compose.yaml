@@ -1,0 +1,121 @@
+# 4Orbit overlay: per-agent Cedar enforcement, the policy plugin and the
+# operator console with the policy playground.
+#
+# Stack it on the dev stack and the real-PAT overlay (make 4orbit-up does this):
+#
+#   docker compose --env-file .dev.env --env-file .4orbit.env \
+#     -f dev.docker-compose.yaml -f local-pat.compose.yaml -f 4orbit.compose.yaml up -d
+#
+# local-pat.compose.yaml swaps authnoop for the real auth plugin, so agent
+# identity comes only from a signed PAT's agent_id claim. Mint tokens with
+# `make 4orbit-seed` (writes .4orbit/tokens/*.pat).
+#
+# Ports added (host):
+#   127.0.0.1:4317  console (policy playground)
+#   9009            plugin-policy metrics
+#
+# Everything here is development only: dev OpenBao is in memory and the
+# account plugin is accountnoop, so every token maps to one tenant.
+
+x-fourorbit-plugin:
+  &fourorbit-plugin
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+  healthcheck:
+    test: ["CMD", "/app", "healthcheck"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 5s
+
+services:
+  plugin-policy:
+    <<: *fourorbit-plugin
+    container_name: plugin-policy
+    build:
+      context: ./plugins
+    image: op-plugin:latest
+    environment:
+      - GOLOG_LOG_LEVEL=${FOURORBIT_LOG_LEVEL:-info}
+      - ORBITPORT_PLUGIN=policy
+      - ORBITPORT_GRPC_PORT=50009
+      - ORBITPORT_POLICY_OPENBAO_PROXY_URL=http://openbao-proxy:8200
+      - ORBITPORT_POLICY_MOUNT=orbitport-policy
+      - ORBITPORT_POLICY_AUDIT_RING=${ORBITPORT_POLICY_AUDIT_RING:-2000}
+    ports:
+      - 9009:9000
+    depends_on:
+      openbao-bootstrap:
+        condition: service_completed_successfully
+      openbao-proxy:
+        condition: service_healthy
+
+  plugin-kms:
+    environment:
+      - ORBITPORT_KMS_POLICY_PLUGIN=plugin-policy:50009
+      - ORBITPORT_KMS_POLICY_CACHE_TTL_SECS=${ORBITPORT_KMS_POLICY_CACHE_TTL_SECS:-5}
+      - ORBITPORT_KMS_AUTHZ_MODE=${ORBITPORT_KMS_AUTHZ_MODE:-enforce}
+    depends_on:
+      plugin-policy:
+        condition: service_started
+
+  plugin-patissuer:
+    environment:
+      - ORBITPORT_PATISSUER_MIN_TTL_SECS=${ORBITPORT_PATISSUER_MIN_TTL_SECS:-60}
+      - ORBITPORT_PATISSUER_AGENT_MAX_TTL_SECS=${ORBITPORT_PATISSUER_AGENT_MAX_TTL_SECS:-86400}
+
+  gateway:
+    environment:
+      - ORBITPORT_POLICY_PLUGIN=http://plugin-policy:50009
+    depends_on:
+      - plugin-policy
+
+  # One-shot: operator PAT, demo keys, policy v1, agent PATs. Re-run with
+  # `make 4orbit-seed`. Writes ./.4orbit/tokens (mode 600).
+  fourorbit-seed:
+    container_name: fourorbit-seed
+    build:
+      context: ./plugins
+      args:
+        - BUILD_TARGET=fourorbit-seed
+    image: op-fourorbit-seed:latest
+    user: "${FOURORBIT_UID:-65532}:${FOURORBIT_GID:-65532}"
+    restart: "no"
+    environment:
+      - FOURORBIT_GATEWAY_URL=http://gateway:8080
+      - FOURORBIT_PATISSUER_ADDR=plugin-patissuer:50006
+      - FOURORBIT_OUT_DIR=/out
+      - FOURORBIT_AGENT_TOKEN_TTL=${FOURORBIT_AGENT_TOKEN_TTL:-3600}
+      - FOURORBIT_OPERATOR_TOKEN_TTL=${FOURORBIT_OPERATOR_TOKEN_TTL:-43200}
+      - FOURORBIT_RESEED=${FOURORBIT_RESEED:-false}
+      - FOURORBIT_POLICY_CACHE_TTL_SECS=${ORBITPORT_KMS_POLICY_CACHE_TTL_SECS:-5}
+    volumes:
+      - ./.4orbit:/out
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  # Operator console + policy playground. The BFF reads the operator PAT from
+  # the mounted token directory and never sends it to the browser. Published
+  # on host loopback only.
+  console:
+    container_name: console
+    build:
+      context: ./console
+    image: op-console:latest
+    # Same uid as the host user, so it can read the mode-600 token files.
+    user: "${FOURORBIT_UID:-1000}:${FOURORBIT_GID:-1000}"
+    environment:
+      - ORBITPORT_URL=http://gateway:8080
+      - ORBITPORT_CONSOLE_PAT_FILE=/tokens/operator.pat
+      - CONSOLE_HOST=0.0.0.0
+      - CONSOLE_PORT=4317
+    volumes:
+      - ./.4orbit/tokens:/tokens:ro
+    ports:
+      - 127.0.0.1:${ORBITPORT_CONSOLE_PORT:-4317}:4317
+    depends_on:
+      - gateway

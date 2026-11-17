@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+option go_package = "github.com/spacecomputer-io/orbitport/plugins/proto";
+
+// Policy plugin (4Orbit merge): per-tenant Cedar policy store, validation,
+// simulation and decision audit. The KMS plugin reads the active bundle and
+// records decisions; the gateway forwards the policy.* JSON-RPC methods.
+package policy;
+
+service PolicyPlugin {
+  // One allowlisted policy.* method. params_json and result_json are the
+  // JSON-RPC params and result; the plugin validates both strictly and
+  // authorizes the caller with the same Cedar engine the KMS uses.
+  rpc Call(CallRequest) returns (CallResponse);
+  // Active bundle for a tenant. exists=false when the tenant has none.
+  rpc GetActive(GetActiveRequest) returns (GetActiveResponse);
+  // Best-effort decision audit from enforcing plugins.
+  rpc RecordAudit(RecordAuditRequest) returns (RecordAuditResponse);
+}
+
+message CallRequest {
+  string method = 1;
+  // From the account Hold, never from the token.
+  string kms_tenant = 2;
+  // From a verified PAT; empty = account principal.
+  string agent_id = 3;
+  string jti_hash = 4;
+  string params_json = 5;
+}
+
+message CallResponse {
+  string result_json = 1;
+}
+
+message GetActiveRequest {
+  string kms_tenant = 1;
+}
+
+message GetActiveResponse {
+  bool exists = 1;
+  int64 version = 2;
+  string policies = 3;
+  string entities_json = 4;
+}
+
+message RecordAuditRequest {
+  repeated string events_json = 1;
+}
+
+message RecordAuditResponse {
+  uint32 accepted = 1;
+}

@@ -1,0 +1,8 @@
+[
+  { "uid": { "type": "Role", "id": "developer" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Role", "id": "security" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Role", "id": "deployment" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Agent", "id": "developer-agent" }, "attrs": {}, "parents": [{ "type": "Role", "id": "developer" }] },
+  { "uid": { "type": "Agent", "id": "security-agent" }, "attrs": {}, "parents": [{ "type": "Role", "id": "security" }] },
+  { "uid": { "type": "Agent", "id": "deployment-agent" }, "attrs": {}, "parents": [{ "type": "Role", "id": "deployment" }] }
+]

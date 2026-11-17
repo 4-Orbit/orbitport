@@ -54,7 +54,8 @@ beacons.yaml                Public beacon registry
 | [`beacon`](plugins/pkg/plugin/beacon/README.md) | Background service that publishes the randomness beacon to IPFS/IPNS | No RPC; consumes the others |
 | [`kms`](plugins/pkg/plugin/kms/README.md) | Multi-tenant Key Management Service (encrypt / decrypt / sign / rotate / key-store) backed by OpenBao | Wraps Transit, Ethereum, PQC, and KV-v2 key-store engines |
 | [`account`](plugins/pkg/plugin/account/README.md) | Per-request credit gating against the dashboard backend account service | Holds credits before serving compute; settles on success, releases on failure |
-| [`patissuer`](plugins/pkg/plugin/patissuer/README.md) | Mints Personal Access Tokens (ES256 JWS) and serves the JWKS verifiers cache | Key custody behind a signer seam: local P-256 key now, OpenBao Transit when provisioned |
+| [`patissuer`](plugins/pkg/plugin/patissuer/README.md) | Mints Personal Access Tokens (ES256 JWS) and serves the JWKS verifiers cache | Key custody behind a signer seam: local P-256 key now, OpenBao Transit when provisioned. Optional `agent_id` claim for short-lived agent PATs (4Orbit) |
+| [`policy`](plugins/pkg/plugin/policy/README.md) | 4Orbit per-tenant Cedar policy store: validation, simulation, test suites, versions, decision audit | Shares `pkg/core/authz` with the KMS plugin; see [`docs/4orbit`](docs/4orbit/README.md) |
 
 ## Configuration
 
@@ -73,6 +74,7 @@ All env vars are prefixed `ORBITPORT_`. They can be supplied via `.env` at repo 
 | `ORBITPORT_KMS_PLUGIN` | — | gRPC URL of the KMS plugin |
 | `ORBITPORT_ACCOUNT_PLUGIN` | — | gRPC URL of the account plugin, required for customer requests. Hold resolves tenancy and credits; settle commits success and release refunds downstream failure. Unset fails customer calls closed with HTTP 503. |
 | `ORBITPORT_PATISSUER_PLUGIN` | — | gRPC URL of the patissuer plugin. When set, mounts `POST /internal/pat/issue` on the internal listener. The key set is published by the jwks plugin |
+| `ORBITPORT_POLICY_PLUGIN` | — | gRPC URL of the 4Orbit policy plugin. When set, the gateway serves the `policy.*` JSON-RPC methods (playground and admin API). Unset: those methods return `unavailable` |
 | `ORBITPORT_RATE_LIMIT` | `40` | Max requests per token per window |
 | `ORBITPORT_RATE_LIMIT_WINDOW` | `10` | Rate-limit window in seconds (default ≈ 4 req/s per token) |
 | `ORBITPORT_BULK_MAX` | `10` | Max items per bulk TRNG request |
@@ -154,6 +156,8 @@ Optional service-token authorization for the internal PAT issuance listener:
 | `ORBITPORT_PATISSUER_TRANSIT_MOUNT` | `transit` | Transit secrets engine mount path |
 | `ORBITPORT_PATISSUER_TRANSIT_KEY` | `pat-signing` | Signing key name; `kid` = the Transit key version, rotation is a key-rotate away |
 | `ORBITPORT_PATISSUER_TIMEOUT_SECS` | `10` | HTTP timeout per OpenBao request |
+| `ORBITPORT_PATISSUER_MIN_TTL_SECS` | `60` | Shortest lifetime of an agent PAT (one with `agent_id`) |
+| `ORBITPORT_PATISSUER_AGENT_MAX_TTL_SECS` | `86400` | Longest lifetime of an agent PAT |
 
 ### Plugin: `jwks`
 
@@ -225,6 +229,21 @@ rather than gRPC and holds no key material. See
 | `ORBITPORT_KMS_KEY_STORE_MOUNT` | `key-store` | KV v2 mount used by KMS key-store put/get/delete storage |
 | `ORBITPORT_KMS_KEY_STORE_CEDAR_POLICY_PATH` | — | Cedar policy document loaded for key-store authorization; compose mounts the default owner policy at `/etc/orbitport/kms/key_store_default.cedar`; Kubernetes deployments should provide it through a ConfigMap |
 | `ORBITPORT_KMS_TIMEOUT_SECS` | `10` | HTTP timeout per OpenBao request |
+| `ORBITPORT_KMS_POLICY_PLUGIN` | — | gRPC address of the policy plugin (4Orbit). Unset: no tenant policies, so account PATs keep full access and agent PATs are denied |
+| `ORBITPORT_KMS_POLICY_CACHE_TTL_SECS` | `5` | How long a tenant's active policy bundle is cached; a failed refresh serves the stale bundle for up to 10× this |
+| `ORBITPORT_KMS_AUTHZ_MODE` | `enforce` | `enforce` blocks on DENY; `shadow` evaluates and audits but never blocks |
+
+Every KMS RPC is authorized by the shared Cedar engine (`plugins/pkg/core/authz`) before it touches OpenBao. The principal is `Agent::"<agent_id>"` when the gateway forwards the `x-orbitport-agent-id` gRPC metadata (from a verified PAT claim), otherwise `Account::"<tenant>"`. See [`docs/4orbit`](docs/4orbit/README.md).
+
+### Plugin: `policy`
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `ORBITPORT_POLICY_OPENBAO_PROXY_URL` | — | OpenBao proxy URL. Unset = in-memory store (dev only, lost on restart) |
+| `ORBITPORT_POLICY_MOUNT` | `orbitport-policy` | KV v2 mount holding versions, the active pointer and test suites |
+| `ORBITPORT_POLICY_TIMEOUT_SECS` | `10` | HTTP timeout per OpenBao request |
+| `ORBITPORT_POLICY_AUDIT_RING` | `2000` | Decision events kept in memory per tenant |
+| `ORBITPORT_POLICY_AUDIT_DIR` | — | When set, also appends every event to `<dir>/<tenant-hash>.jsonl` |
 
 ### Plugin: `account`
 

@@ -25,6 +25,10 @@ message IssueTokenRequest {
   // Expiry as unix seconds. iat/exp are the issuer's responsibility to
   // stamp; the request only bounds the lifetime.
   int64 expires_at = 4;
+  // Optional agent identity (4Orbit). Becomes the agent_id claim; the gateway
+  // forwards it to the KMS plugin as the Cedar principal Agent::"<agent_id>".
+  // Empty = an account-level PAT.
+  string agent_id = 5;
 }
 
 message IssueTokenResponse {

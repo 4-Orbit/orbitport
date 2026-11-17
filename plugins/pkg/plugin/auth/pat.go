@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -238,11 +239,26 @@ func (p *Plugin) validatePAT(ctx context.Context, tokenString string) (*proto.To
 	}
 	// Optional until the D9 backfill lands — empty means no frozen tenant.
 	kmsTenant, _ := claims["kms_tenant"].(string)
+	// Optional agent identity (4Orbit). Signed by the issuer, so it is trusted
+	// here; a malformed value rejects the whole token rather than downgrading
+	// it to an account-level credential.
+	agentID := ""
+	if rawAgent, present := claims["agent_id"]; present {
+		s, ok := rawAgent.(string)
+		if !ok || !agentIDRe.MatchString(s) {
+			return nil, status.Errorf(codes.Unauthenticated, "invalid_credential: malformed agent_id claim")
+		}
+		agentID = s
+	}
 
 	return &proto.TokenValidationResponse{
 		Ok:        true,
 		ClientId:  sub,
 		Jti:       jti,
 		KmsTenant: kmsTenant,
+		AgentId:   agentID,
 	}, nil
 }
+
+// Same identifier shape as the Cedar engine's agent ids.
+var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)

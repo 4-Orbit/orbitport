@@ -2,6 +2,7 @@ use orbitport_kms_api::KmsValidation;
 use serde::Serialize;
 use tonic::transport::Channel;
 
+use crate::caller::Caller;
 use crate::proto::plugins::kms::{
     CreateKeyRequest as PluginCreateKeyRequest, CreateKeyResponse as PluginCreateKeyResponse,
     DecapsulateRequest as PluginDecapsulateRequest,
@@ -22,9 +23,10 @@ use crate::proto::plugins::kms::{
     KeyStoreListRequest as PluginKeyStoreListRequest,
     KeyStoreListResponse as PluginKeyStoreListResponse,
     KeyStorePutRequest as PluginKeyStorePutRequest,
-    KeyStorePutResponse as PluginKeyStorePutResponse, RotateKeyRequest as PluginRotateKeyRequest,
-    RotateKeyResponse as PluginRotateKeyResponse, SignRequest as PluginSignRequest,
-    SignResponse as PluginSignResponse, Tag as PluginTag, kms_plugin_client::KmsPluginClient,
+    KeyStorePutResponse as PluginKeyStorePutResponse, ListKeysRequest as PluginListKeysRequest,
+    RotateKeyRequest as PluginRotateKeyRequest, RotateKeyResponse as PluginRotateKeyResponse,
+    SignRequest as PluginSignRequest, SignResponse as PluginSignResponse, Tag as PluginTag,
+    kms_plugin_client::KmsPluginClient,
 };
 use crate::proto::services::kms::{
     CreateKeyRequest, CreateKeyResponse, DecapsulateRequest, DecapsulateResponse, DecryptRequest,
@@ -279,11 +281,53 @@ impl KmsRpcResult {
 #[derive(Clone)]
 pub struct KmsService {
     client: KmsPluginClient<Channel>,
+    caller: Caller,
 }
 
 impl KmsService {
     pub fn new(client: KmsPluginClient<Channel>) -> Self {
-        Self { client }
+        Self {
+            client,
+            caller: Caller::default(),
+        }
+    }
+
+    /// Attaches the caller identity (agent id, token hash) that the KMS
+    /// plugin authorizes against. Without it every call is an account call.
+    pub fn with_caller(mut self, caller: Caller) -> Self {
+        self.caller = caller;
+        self
+    }
+
+    /// Lists the tenant's key metadata (policy playground). Authorized by the
+    /// KMS plugin as kms.ListKeys.
+    pub async fn list_keys(&mut self, client_id: &str) -> Result<serde_json::Value, tonic::Status> {
+        let response = self
+            .client
+            .list_keys(self.caller.request(PluginListKeysRequest {
+                client_id: client_id.to_string(),
+            }))
+            .await?
+            .into_inner();
+        let keys: Vec<serde_json::Value> = response
+            .keys
+            .into_iter()
+            .map(|k| {
+                serde_json::json!({
+                    "keyId": k.key_id,
+                    "alias": k.alias,
+                    "scheme": k.scheme,
+                    "keySpec": k.key_spec,
+                    "keyUsage": k.key_usage,
+                    "enabled": k.enabled,
+                    "primaryVersion": k.primary_version,
+                    "creationDate": k.creation_date,
+                    "description": k.description,
+                    "tags": k.tags.into_iter().map(|t| serde_json::json!({"key": t.tag_key, "value": t.tag_value})).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({"keys": keys, "truncated": response.truncated}))
     }
 
     pub fn validate_encrypt(req: &EncryptRequest) -> Result<(), String> {
@@ -404,7 +448,7 @@ impl KmsService {
     ) -> Result<EncryptResponse, tonic::Status> {
         let response: PluginEncryptResponse = self
             .client
-            .encrypt(tonic::Request::new(PluginEncryptRequest {
+            .encrypt(self.caller.request(PluginEncryptRequest {
                 key_id: req.key_id,
                 plaintext: req.plaintext,
                 encryption_algorithm: req.encryption_algorithm,
@@ -427,7 +471,7 @@ impl KmsService {
     ) -> Result<DecryptResponse, tonic::Status> {
         let response: PluginDecryptResponse = self
             .client
-            .decrypt(tonic::Request::new(PluginDecryptRequest {
+            .decrypt(self.caller.request(PluginDecryptRequest {
                 ciphertext_blob: req.ciphertext_blob,
                 key_id: req.key_id,
                 encryption_algorithm: req.encryption_algorithm,
@@ -450,7 +494,7 @@ impl KmsService {
     ) -> Result<SignResponse, tonic::Status> {
         let response: PluginSignResponse = self
             .client
-            .sign(tonic::Request::new(PluginSignRequest {
+            .sign(self.caller.request(PluginSignRequest {
                 key_id: req.key_id,
                 message: req.message,
                 signing_algorithm: req.signing_algorithm,
@@ -475,7 +519,7 @@ impl KmsService {
     ) -> Result<EncapsulateResponse, tonic::Status> {
         let response: PluginEncapsulateResponse = self
             .client
-            .encapsulate(tonic::Request::new(PluginEncapsulateRequest {
+            .encapsulate(self.caller.request(PluginEncapsulateRequest {
                 key_id: req.key_id,
                 client_id: client_id.to_string(),
             }))
@@ -497,7 +541,7 @@ impl KmsService {
     ) -> Result<DecapsulateResponse, tonic::Status> {
         let response: PluginDecapsulateResponse = self
             .client
-            .decapsulate(tonic::Request::new(PluginDecapsulateRequest {
+            .decapsulate(self.caller.request(PluginDecapsulateRequest {
                 key_id: req.key_id,
                 ciphertext: req.ciphertext,
                 client_id: client_id.to_string(),
@@ -519,22 +563,24 @@ impl KmsService {
     ) -> Result<CreateKeyResponse, tonic::Status> {
         let response: PluginCreateKeyResponse = self
             .client
-            .create_key(tonic::Request::new(PluginCreateKeyRequest {
-                description: req.description,
-                key_spec: req.key_spec,
-                key_usage: req.key_usage,
-                scheme: req.scheme,
-                alias: req.alias,
-                tags: req
-                    .tags
-                    .into_iter()
-                    .map(|tag| PluginTag {
-                        tag_key: tag.tag_key,
-                        tag_value: tag.tag_value,
-                    })
-                    .collect(),
-                client_id: client_id.to_string(),
-            }))
+            .create_key(
+                self.caller.request(PluginCreateKeyRequest {
+                    description: req.description,
+                    key_spec: req.key_spec,
+                    key_usage: req.key_usage,
+                    scheme: req.scheme,
+                    alias: req.alias,
+                    tags: req
+                        .tags
+                        .into_iter()
+                        .map(|tag| PluginTag {
+                            tag_key: tag.tag_key,
+                            tag_value: tag.tag_value,
+                        })
+                        .collect(),
+                    client_id: client_id.to_string(),
+                }),
+            )
             .await?
             .into_inner();
 
@@ -550,7 +596,7 @@ impl KmsService {
     ) -> Result<GetKeyMetadataResponse, tonic::Status> {
         let response: PluginGetKeyMetadataResponse = self
             .client
-            .get_key_metadata(tonic::Request::new(PluginGetKeyMetadataRequest {
+            .get_key_metadata(self.caller.request(PluginGetKeyMetadataRequest {
                 key_id: req.key_id,
                 client_id: client_id.to_string(),
             }))
@@ -569,7 +615,7 @@ impl KmsService {
     ) -> Result<GetPublicKeyResponse, tonic::Status> {
         let response: PluginGetPublicKeyResponse = self
             .client
-            .get_public_key(tonic::Request::new(PluginGetPublicKeyRequest {
+            .get_public_key(self.caller.request(PluginGetPublicKeyRequest {
                 key_id: req.key_id,
                 client_id: client_id.to_string(),
                 version: req.version,
@@ -590,7 +636,7 @@ impl KmsService {
     ) -> Result<GenerateDataKeyResponse, tonic::Status> {
         let response: PluginGenerateDataKeyResponse = self
             .client
-            .generate_data_key(tonic::Request::new(PluginGenerateDataKeyRequest {
+            .generate_data_key(self.caller.request(PluginGenerateDataKeyRequest {
                 key_id: req.key_id,
                 data_key_spec: req.data_key_spec,
                 number_of_bytes: req.number_of_bytes,
@@ -613,7 +659,7 @@ impl KmsService {
     ) -> Result<RotateKeyResponse, tonic::Status> {
         let response: PluginRotateKeyResponse = self
             .client
-            .rotate_key(tonic::Request::new(PluginRotateKeyRequest {
+            .rotate_key(self.caller.request(PluginRotateKeyRequest {
                 key_id: req.key_id,
                 client_id: client_id.to_string(),
             }))
@@ -633,7 +679,7 @@ impl KmsService {
         let secret_json = req.secret.as_json_str().to_string();
         let response: PluginKeyStorePutResponse = self
             .client
-            .key_store_put(tonic::Request::new(PluginKeyStorePutRequest {
+            .key_store_put(self.caller.request(PluginKeyStorePutRequest {
                 name: req.name,
                 secret_json,
                 client_id: client_id.to_string(),
@@ -654,7 +700,7 @@ impl KmsService {
     ) -> Result<KeyStoreGetResponse, tonic::Status> {
         let response: PluginKeyStoreGetResponse = self
             .client
-            .key_store_get(tonic::Request::new(PluginKeyStoreGetRequest {
+            .key_store_get(self.caller.request(PluginKeyStoreGetRequest {
                 name: req.name,
                 client_id: client_id.to_string(),
             }))
@@ -676,7 +722,7 @@ impl KmsService {
     ) -> Result<KeyStoreListResponse, tonic::Status> {
         let response: PluginKeyStoreListResponse = self
             .client
-            .key_store_list(tonic::Request::new(PluginKeyStoreListRequest {
+            .key_store_list(self.caller.request(PluginKeyStoreListRequest {
                 client_id: client_id.to_string(),
                 prefix: req.prefix,
             }))
@@ -695,7 +741,7 @@ impl KmsService {
     ) -> Result<KeyStoreDeleteResponse, tonic::Status> {
         let response: PluginKeyStoreDeleteResponse = self
             .client
-            .key_store_delete(tonic::Request::new(PluginKeyStoreDeleteRequest {
+            .key_store_delete(self.caller.request(PluginKeyStoreDeleteRequest {
                 name: req.name,
                 client_id: client_id.to_string(),
             }))

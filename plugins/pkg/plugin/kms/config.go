@@ -20,6 +20,11 @@ type kmsConfig struct {
 	KeyStoreMount           string
 	KeyStoreCedarPolicyPath string
 	TimeoutSecs             int
+	// Agent authorization (4Orbit). PolicyPlugin empty = no tenant policies:
+	// account principals keep full access, agent principals are denied.
+	PolicyPlugin       string
+	PolicyCacheTTLSecs int
+	AuthzMode          string
 }
 
 func readFromEnv() *kmsConfig {
@@ -34,6 +39,9 @@ func readFromEnv() *kmsConfig {
 		KeyStoreMount:           viper.GetString("KMS_KEY_STORE_MOUNT"),
 		KeyStoreCedarPolicyPath: viper.GetString("KMS_KEY_STORE_CEDAR_POLICY_PATH"),
 		TimeoutSecs:             viper.GetInt("KMS_TIMEOUT_SECS"),
+		PolicyPlugin:            viper.GetString("KMS_POLICY_PLUGIN"),
+		PolicyCacheTTLSecs:      viper.GetInt("KMS_POLICY_CACHE_TTL_SECS"),
+		AuthzMode:               viper.GetString("KMS_AUTHZ_MODE"),
 	}
 }
 
@@ -45,6 +53,9 @@ func setDefaults() {
 	viper.SetDefault("KMS_KEY_STORE_MOUNT", defaultKMSKeyStoreMount)
 	viper.SetDefault("KMS_KEY_STORE_CEDAR_POLICY_PATH", "")
 	viper.SetDefault("KMS_TIMEOUT_SECS", defaultKMSTimeoutSecs)
+	viper.SetDefault("KMS_POLICY_PLUGIN", "")
+	viper.SetDefault("KMS_POLICY_CACHE_TTL_SECS", 5)
+	viper.SetDefault("KMS_AUTHZ_MODE", "enforce")
 }
 
 func withKMSConfigDefaults(cfg *kmsConfig) *kmsConfig {
@@ -69,6 +80,12 @@ func withKMSConfigDefaults(cfg *kmsConfig) *kmsConfig {
 	}
 	if next.TimeoutSecs == 0 {
 		next.TimeoutSecs = defaultKMSTimeoutSecs
+	}
+	if next.PolicyCacheTTLSecs <= 0 {
+		next.PolicyCacheTTLSecs = 5
+	}
+	if next.AuthzMode == "" {
+		next.AuthzMode = "enforce"
 	}
 	return &next
 }

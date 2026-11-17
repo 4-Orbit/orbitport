@@ -177,7 +177,15 @@ without numeric precision loss. It is separate from operational KMS metadata:
   callers can request that folder as the next prefix when they want to walk
   deeper.
 
-Authorization is enforced in the KMS plugin with Cedar. The compose stacks mount
+Agent authorization (4Orbit): every KMS RPC, not just the key-store, first
+passes the shared Cedar engine in `pkg/core/authz` (`guarded.go`,
+`agent_authz.go`). Agents are identified by the gateway-forwarded
+`x-orbitport-agent-id` metadata and are denied unless the tenant's active
+policy (from the policy plugin) permits them; account principals keep owner
+access via the platform policy. A DENY never reaches OpenBao. See
+`docs/4orbit/README.md`.
+
+Key-store authorization is additionally enforced with Cedar. The compose stacks mount
 the default owner policy file into the KMS container at
 `/etc/orbitport/kms/key_store_default.cedar`; Kubernetes deployments should
 provide the same file through a ConfigMap. Configure

@@ -75,7 +75,10 @@ type TokenValidationResponse struct {
 	// KMS tenancy (D9), legacy Auth0 only: the RAW sub including any @clients
 	// suffix. On the PAT path this is the self-asserted claim, which the
 	// gateway ignores in favour of HoldResponse.kms_tenant.
-	KmsTenant     string `protobuf:"bytes,4,opt,name=kms_tenant,json=kmsTenant,proto3" json:"kms_tenant,omitempty"`
+	KmsTenant string `protobuf:"bytes,4,opt,name=kms_tenant,json=kmsTenant,proto3" json:"kms_tenant,omitempty"`
+	// Agent identity from a verified PAT's agent_id claim (4Orbit). Empty for
+	// account-level PATs. Never taken from the request body.
+	AgentId       string `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -134,6 +137,13 @@ func (x *TokenValidationResponse) GetJti() string {
 func (x *TokenValidationResponse) GetKmsTenant() string {
 	if x != nil {
 		return x.KmsTenant
+	}
+	return ""
+}
+
+func (x *TokenValidationResponse) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
 	}
 	return ""
 }
@@ -251,13 +261,14 @@ const file_proto_plugins_auth_proto_rawDesc = "" +
 	"\n" +
 	"\x18proto/plugins/auth.proto\x12\x04auth\".\n" +
 	"\x16TokenValidationRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"w\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\x92\x01\n" +
 	"\x17TokenValidationResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x1b\n" +
 	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12\x10\n" +
 	"\x03jti\x18\x03 \x01(\tR\x03jti\x12\x1d\n" +
 	"\n" +
-	"kms_tenant\x18\x04 \x01(\tR\tkmsTenant\"^\n" +
+	"kms_tenant\x18\x04 \x01(\tR\tkmsTenant\x12\x19\n" +
+	"\bagent_id\x18\x05 \x01(\tR\aagentId\"^\n" +
 	"\x1dServiceTokenValidationRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12'\n" +
 	"\x0frequired_scopes\x18\x02 \x03(\tR\x0erequiredScopes\"M\n" +

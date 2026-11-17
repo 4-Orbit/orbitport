@@ -10,11 +10,13 @@ use crate::proto::services::kms::{
 };
 use crate::proto::services::threshold::DkgRequest;
 
+use crate::caller::Caller;
 use crate::services::ctrng::{CTrngService, MAX_CHUNKS};
 use crate::services::kms::{
     KeyStoreDeleteRequest, KeyStoreGetRequest, KeyStoreListRequest, KeyStorePutRequest, KmsRpcCall,
     KmsService,
 };
+use crate::services::policy::PolicyCall;
 use crate::services::threshold::{ThresholdRpcCall, ThresholdService};
 
 type JsonRpcRawResponse = Box<serde_json::value::RawValue>;
@@ -146,6 +148,8 @@ pub enum RpcCall {
     CoordinateDKG(DkgRequest),
     GetKeyMetadata(GetKeyMetadataRequest),
     GetPublicKey(GetPublicKeyRequest),
+    /// 4Orbit policy administration (policy.* methods).
+    Policy(PolicyCall),
 }
 
 impl RpcCall {
@@ -183,6 +187,7 @@ impl RpcCall {
                 method,
                 params_json,
             )?)),
+            m if m.starts_with("policy.") => Ok(Self::Policy(PolicyCall::parse(m, params_json)?)),
             _ => Err(format!("Unsupported method: {method}")),
         }
     }
@@ -225,6 +230,7 @@ impl RpcCall {
             RpcCall::CoordinateDKG(req) => {
                 ThresholdService::validate_coordinate_dkg(req).map_err(|e| e.to_string())?
             }
+            RpcCall::Policy(call) => call.validate()?,
         }
         Ok(())
     }
@@ -250,17 +256,34 @@ impl RpcCall {
             RpcCall::Encapsulate(_) => "kms.Encapsulate".to_string(),
             RpcCall::Decapsulate(_) => "kms.Decapsulate".to_string(),
             RpcCall::CoordinateDKG(_) => "kms_threshold.CoordinateDKG".to_string(),
+            RpcCall::Policy(call) => call.method.clone(),
         }
     }
 
-    /// Executes the RPC call using the provided plugin catalog.
+    /// Executes the RPC call as an account principal of `client_id`.
     pub async fn execute(
         self,
         req_id: u64,
         client_id: &str,
         plugin_catalog: &PluginCatalog,
     ) -> Result<JsonRpcRawResponse, tonic::Status> {
+        self.execute_as(req_id, &Caller::tenant_only(client_id), plugin_catalog)
+            .await
+    }
+
+    /// Executes the RPC call with the caller identity forwarded to plugins.
+    pub async fn execute_as(
+        self,
+        req_id: u64,
+        caller: &Caller,
+        plugin_catalog: &PluginCatalog,
+    ) -> Result<JsonRpcRawResponse, tonic::Status> {
+        let client_id = caller.tenant.as_str();
         match self {
+            RpcCall::Policy(call) => {
+                let result = call.execute(caller, plugin_catalog).await?;
+                serialize_success_response(req_id, result)
+            }
             RpcCall::GetCTRNG(req) => {
                 let grpc_client = plugin_catalog.get_masterseed_client().await.map_err(|_| {
                     if plugin_catalog.ctrng_enabled() {
@@ -281,45 +304,27 @@ impl RpcCall {
                 serialize_success_response(req_id, KmsService::get_capabilities())
             }
             RpcCall::Encrypt(req) => {
-                execute_kms(req_id, client_id, plugin_catalog, KmsRpcCall::Encrypt(req)).await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::Encrypt(req)).await
             }
             RpcCall::Decrypt(req) => {
-                execute_kms(req_id, client_id, plugin_catalog, KmsRpcCall::Decrypt(req)).await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::Decrypt(req)).await
             }
             RpcCall::Sign(req) => {
-                execute_kms(req_id, client_id, plugin_catalog, KmsRpcCall::Sign(req)).await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::Sign(req)).await
             }
             RpcCall::Encapsulate(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::Encapsulate(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::Encapsulate(req)).await
             }
             RpcCall::Decapsulate(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::Decapsulate(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::Decapsulate(req)).await
             }
             RpcCall::CreateKey(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::CreateKey(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::CreateKey(req)).await
             }
             RpcCall::GetKeyMetadata(req) => {
                 execute_kms(
                     req_id,
-                    client_id,
+                    caller,
                     plugin_catalog,
                     KmsRpcCall::GetKeyMetadata(req),
                 )
@@ -328,7 +333,7 @@ impl RpcCall {
             RpcCall::GetPublicKey(req) => {
                 execute_kms(
                     req_id,
-                    client_id,
+                    caller,
                     plugin_catalog,
                     KmsRpcCall::GetPublicKey(req),
                 )
@@ -337,43 +342,25 @@ impl RpcCall {
             RpcCall::GenerateDataKey(req) => {
                 execute_kms(
                     req_id,
-                    client_id,
+                    caller,
                     plugin_catalog,
                     KmsRpcCall::GenerateDataKey(req),
                 )
                 .await
             }
             RpcCall::RotateKey(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::RotateKey(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::RotateKey(req)).await
             }
             RpcCall::KeyStorePut(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::KeyStorePut(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::KeyStorePut(req)).await
             }
             RpcCall::KeyStoreGet(req) => {
-                execute_kms(
-                    req_id,
-                    client_id,
-                    plugin_catalog,
-                    KmsRpcCall::KeyStoreGet(req),
-                )
-                .await
+                execute_kms(req_id, caller, plugin_catalog, KmsRpcCall::KeyStoreGet(req)).await
             }
             RpcCall::KeyStoreList(req) => {
                 execute_kms(
                     req_id,
-                    client_id,
+                    caller,
                     plugin_catalog,
                     KmsRpcCall::KeyStoreList(req),
                 )
@@ -382,7 +369,7 @@ impl RpcCall {
             RpcCall::KeyStoreDelete(req) => {
                 execute_kms(
                     req_id,
-                    client_id,
+                    caller,
                     plugin_catalog,
                     KmsRpcCall::KeyStoreDelete(req),
                 )
@@ -412,7 +399,7 @@ fn serialize_success_response<T: Serialize>(
 
 async fn execute_kms(
     req_id: u64,
-    client_id: &str,
+    caller: &Caller,
     plugin_catalog: &PluginCatalog,
     call: KmsRpcCall,
 ) -> Result<JsonRpcRawResponse, tonic::Status> {
@@ -420,8 +407,8 @@ async fn execute_kms(
         .get_kms_client()
         .await
         .map_err(|_| tonic::Status::unavailable("KMS plugin unavailable"))?;
-    let mut svc = KmsService::new(grpc_client);
-    let results = svc.execute(client_id, req_id, call).await?;
+    let mut svc = KmsService::new(grpc_client).with_caller(caller.clone());
+    let results = svc.execute(&caller.tenant, req_id, call).await?;
     serialize_success_response(req_id, results)
 }
 

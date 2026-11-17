@@ -23,6 +23,7 @@ type Plugin struct {
 	now                func() time.Time
 	providers          map[string]kmsProvider
 	keyStoreAuthorizer *keyStoreAuthorizer
+	agentAuthz         *agentAuthorizer
 }
 
 var logger = utils.GetLogger("orbitport:kms")
@@ -61,10 +62,15 @@ func newPluginWithConfig(cfg *kmsConfig, client *openBaoClient) (*Plugin, error)
 	if err != nil {
 		return nil, err
 	}
+	agentAuthz, err := newAgentAuthorizer(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Plugin{
 		client:             client,
 		now:                time.Now,
 		keyStoreAuthorizer: authorizer,
+		agentAuthz:         agentAuthz,
 		providers: map[string]kmsProvider{
 			schemeTransit:  newTransitProvider(client),
 			schemeEthereum: newEthereumProvider(client),
@@ -73,7 +79,7 @@ func newPluginWithConfig(cfg *kmsConfig, client *openBaoClient) (*Plugin, error)
 	}, nil
 }
 
-func (p *Plugin) Encrypt(ctx context.Context, req *proto.EncryptRequest) (*proto.EncryptResponse, error) {
+func (p *Plugin) encryptImpl(ctx context.Context, req *proto.EncryptRequest) (*proto.EncryptResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -96,7 +102,7 @@ func (p *Plugin) Encrypt(ctx context.Context, req *proto.EncryptRequest) (*proto
 	return resp, nil
 }
 
-func (p *Plugin) Decrypt(ctx context.Context, req *proto.DecryptRequest) (*proto.DecryptResponse, error) {
+func (p *Plugin) decryptImpl(ctx context.Context, req *proto.DecryptRequest) (*proto.DecryptResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -140,7 +146,7 @@ func (p *Plugin) Decrypt(ctx context.Context, req *proto.DecryptRequest) (*proto
 	return resp, nil
 }
 
-func (p *Plugin) Sign(ctx context.Context, req *proto.SignRequest) (*proto.SignResponse, error) {
+func (p *Plugin) signImpl(ctx context.Context, req *proto.SignRequest) (*proto.SignResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -170,7 +176,7 @@ func (p *Plugin) Sign(ctx context.Context, req *proto.SignRequest) (*proto.SignR
 	return resp, nil
 }
 
-func (p *Plugin) Encapsulate(ctx context.Context, req *proto.EncapsulateRequest) (*proto.EncapsulateResponse, error) {
+func (p *Plugin) encapsulateImpl(ctx context.Context, req *proto.EncapsulateRequest) (*proto.EncapsulateResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -194,7 +200,7 @@ func (p *Plugin) Encapsulate(ctx context.Context, req *proto.EncapsulateRequest)
 	return resp, nil
 }
 
-func (p *Plugin) Decapsulate(ctx context.Context, req *proto.DecapsulateRequest) (*proto.DecapsulateResponse, error) {
+func (p *Plugin) decapsulateImpl(ctx context.Context, req *proto.DecapsulateRequest) (*proto.DecapsulateResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -218,7 +224,7 @@ func (p *Plugin) Decapsulate(ctx context.Context, req *proto.DecapsulateRequest)
 	return resp, nil
 }
 
-func (p *Plugin) CreateKey(ctx context.Context, req *proto.CreateKeyRequest) (*proto.CreateKeyResponse, error) {
+func (p *Plugin) createKeyImpl(ctx context.Context, req *proto.CreateKeyRequest) (*proto.CreateKeyResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -282,7 +288,7 @@ func (p *Plugin) CreateKey(ctx context.Context, req *proto.CreateKeyRequest) (*p
 	}, nil
 }
 
-func (p *Plugin) GetKeyMetadata(ctx context.Context, req *proto.GetKeyMetadataRequest) (*proto.GetKeyMetadataResponse, error) {
+func (p *Plugin) getKeyMetadataImpl(ctx context.Context, req *proto.GetKeyMetadataRequest) (*proto.GetKeyMetadataResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -298,7 +304,7 @@ func (p *Plugin) GetKeyMetadata(ctx context.Context, req *proto.GetKeyMetadataRe
 	}, nil
 }
 
-func (p *Plugin) GetPublicKey(ctx context.Context, req *proto.GetPublicKeyRequest) (*proto.GetPublicKeyResponse, error) {
+func (p *Plugin) getPublicKeyImpl(ctx context.Context, req *proto.GetPublicKeyRequest) (*proto.GetPublicKeyResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -329,7 +335,7 @@ func (p *Plugin) GetPublicKey(ctx context.Context, req *proto.GetPublicKeyReques
 	}, nil
 }
 
-func (p *Plugin) GenerateDataKey(ctx context.Context, req *proto.GenerateDataKeyRequest) (*proto.GenerateDataKeyResponse, error) {
+func (p *Plugin) generateDataKeyImpl(ctx context.Context, req *proto.GenerateDataKeyRequest) (*proto.GenerateDataKeyResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
@@ -353,7 +359,7 @@ func (p *Plugin) GenerateDataKey(ctx context.Context, req *proto.GenerateDataKey
 	return resp, nil
 }
 
-func (p *Plugin) RotateKey(ctx context.Context, req *proto.RotateKeyRequest) (*proto.RotateKeyResponse, error) {
+func (p *Plugin) rotateKeyImpl(ctx context.Context, req *proto.RotateKeyRequest) (*proto.RotateKeyResponse, error) {
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}

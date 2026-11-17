@@ -53,6 +53,10 @@ async fn handle_pat_issue(
         subject: body.subject,
         kms_tenant: body.kms_tenant.unwrap_or_default(),
         expires_at: body.expires_at,
+        // The dashboard route mints account-level PATs only. Agent PATs are
+        // minted through policy.IssueAgentToken, which the policy plugin
+        // authorizes against the tenant's registered agents.
+        agent_id: String::new(),
     });
     match client.issue_token(request).await {
         Ok(resp) => Ok(json_status(

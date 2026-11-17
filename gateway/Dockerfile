@@ -3,6 +3,9 @@
 ################################################################################
 
 ARG RUST_VERSION=1.92
+# Runtime base. The default needs a dhi.io (Docker Hardened Images) login; set
+# RUNTIME_IMAGE=gcr.io/distroless/cc-debian13:nonroot to build without one.
+ARG RUNTIME_IMAGE=dhi.io/static:20250419-glibc
 
 FROM rust:${RUST_VERSION}-slim-trixie AS build
 
@@ -39,7 +42,7 @@ EOF
 ################################################################################
 
 # distroless with glibc and libgcc for the gnu build, no shell or package manager
-FROM dhi.io/static:20250419-glibc AS final
+FROM ${RUNTIME_IMAGE} AS final
 
 COPY --from=build /bin/gateway /bin/gateway
 

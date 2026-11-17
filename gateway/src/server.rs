@@ -11,6 +11,7 @@ use crate::types::{EncryptionKey, GatewayError, ServiceRequest};
 use crate::agent_delegation::{self, AgentCredentialStore};
 use crate::agent_request_auth;
 use crate::auth::pat_issue_route;
+use crate::caller::{Caller, hash_jti};
 use crate::filters::{
     AuthContext, AuthContextWithHold, RateLimiter, account_hold, account_release, account_settle,
     with_account_hold, with_auth, with_rate_limiter,
@@ -374,11 +375,17 @@ async fn handle_rpc(
     let ctx = account_hold(auth, account_client.clone(), 1, &rpc_call.operation()).await?;
     let ledger_id = ctx.ledger_id.clone();
     const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-    let client_id = ctx.kms_tenant;
+    let caller = Caller {
+        tenant: ctx.kms_tenant,
+        agent_id: ctx.auth.agent_id.clone(),
+        jti_hash: hash_jti(&ctx.auth.jti),
+        subject: ctx.auth.client_id.clone(),
+        token_kms_tenant: ctx.auth.kms_tenant.clone(),
+    };
 
     match timeout(
         REQUEST_TIMEOUT,
-        rpc_call.execute(req_id, &client_id, &plugin_catalog),
+        rpc_call.execute_as(req_id, &caller, &plugin_catalog),
     )
     .await
     {

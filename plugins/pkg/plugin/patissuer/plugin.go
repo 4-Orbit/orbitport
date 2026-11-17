@@ -2,6 +2,7 @@ package patissuer
 
 import (
 	"context"
+	"regexp"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,6 +22,9 @@ type Plugin struct {
 	signer signer
 	logger *utils.Logger
 }
+
+// Same identifier shape as the Cedar engine's agent ids.
+var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 func NewPlugin() (*Plugin, error) {
 	cfg := readFromEnv()
@@ -65,6 +69,18 @@ func (p *Plugin) IssueToken(ctx context.Context, req *proto.IssueTokenRequest) (
 	if !exp.After(now) {
 		return nil, status.Error(codes.InvalidArgument, "expires_at must be in the future")
 	}
+	if agentID := req.GetAgentId(); agentID != "" {
+		if !agentIDRe.MatchString(agentID) {
+			return nil, status.Error(codes.InvalidArgument, "agent_id must be 1-64 characters of a-z, 0-9, - or _")
+		}
+		lifetime := exp.Sub(now)
+		if minTTL := time.Duration(p.cfg.AgentMinTTLSecs) * time.Second; lifetime < minTTL {
+			return nil, status.Errorf(codes.InvalidArgument, "agent token lifetime must be at least %d seconds", p.cfg.AgentMinTTLSecs)
+		}
+		if maxTTL := time.Duration(p.cfg.AgentMaxTTLSecs) * time.Second; maxTTL > 0 && lifetime > maxTTL+time.Second {
+			return nil, status.Errorf(codes.InvalidArgument, "agent token lifetime exceeds %d seconds", p.cfg.AgentMaxTTLSecs)
+		}
+	}
 	if exp.After(now.AddDate(0, 0, p.cfg.MaxTTLDays)) {
 		return nil, status.Errorf(codes.InvalidArgument, "expires_at exceeds the %d-day ceiling", p.cfg.MaxTTLDays)
 	}
@@ -79,6 +95,9 @@ func (p *Plugin) IssueToken(ctx context.Context, req *proto.IssueTokenRequest) (
 	}
 	if req.GetKmsTenant() != "" {
 		claims["kms_tenant"] = req.GetKmsTenant()
+	}
+	if req.GetAgentId() != "" {
+		claims["agent_id"] = req.GetAgentId()
 	}
 
 	token, err := p.signer.Mint(ctx, claims)
