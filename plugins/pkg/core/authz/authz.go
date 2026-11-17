@@ -465,25 +465,70 @@ func (c *Compiled) loadEntities(raw json.RawMessage) []Problem {
 // means the tenant has no policy set: only the platform policy applies, so
 // account principals keep working and every agent is denied.
 func Evaluate(c *Compiled, req Request, now time.Time) Result {
+	pr, msg := prepare(c, req)
+	if msg != "" {
+		return denyErr(msg)
+	}
+	decision, diag := cedar.Authorize(pr.set, pr.entities, pr.at(now))
+
+	if len(diag.Errors) > 0 {
+		r := Result{Decision: Deny, DeterminingPolicies: []string{}, Errored: true}
+		for _, e := range diag.Errors {
+			r.Diagnostics = append(r.Diagnostics, fmt.Sprintf("%s: %s", e.PolicyID, e.Message))
+		}
+		return r
+	}
+	ids := make([]string, 0, len(diag.Reasons))
+	for _, reason := range diag.Reasons {
+		ids = append(ids, string(reason.PolicyID))
+	}
+	sort.Strings(ids)
+	if decision == cedar.Allow {
+		return Result{Decision: Allow, DeterminingPolicies: ids}
+	}
+	return Result{Decision: Deny, DeterminingPolicies: ids}
+}
+
+// prepared is a request ready for cedar.Authorize: the policy set (platform
+// plus tenant), the entities it may read, and the Cedar request without its
+// time-dependent context. Evaluate and Explain both use it, so an
+// explanation always judges exactly the request enforcement would.
+type prepared struct {
+	set      *cedar.PolicySet
+	entities cedar.EntityGetter
+	req      cedar.Request
+}
+
+// at returns the Cedar request with the trusted time as its only context.
+func (p prepared) at(now time.Time) cedar.Request {
+	r := p.req
+	// The only context: trusted time, as an integer Cedar Long (US5).
+	r.Context = cedar.NewRecord(cedar.RecordMap{"currentTime": cedar.Long(now.Unix())})
+	return r
+}
+
+// prepare validates a request and builds its entities. A non-empty message
+// means the request is malformed and must be denied without evaluation.
+func prepare(c *Compiled, req Request) (prepared, string) {
 	if _, ok := actionGroups[req.Action]; !ok {
-		return denyErr("unknown action")
+		return prepared{}, "unknown action"
 	}
 	tenant := strings.TrimSpace(req.Principal.Tenant)
 	if tenant == "" {
-		return denyErr("missing tenant")
+		return prepared{}, "missing tenant"
 	}
 	if req.Principal.IsAgent() && !entityIDRe.MatchString(req.Principal.AgentID) {
-		return denyErr("malformed agent id")
+		return prepared{}, "malformed agent id"
 	}
 	wantType := ResourceTypeFor(req.Action)
 	if req.Resource.Type == "" {
 		req.Resource.Type = wantType
 	}
 	if req.Resource.Type != wantType {
-		return denyErr("resource type does not match action")
+		return prepared{}, "resource type does not match action"
 	}
 	if req.Resource.ID == "" || len(req.Resource.ID) > maxResourceIDLen {
-		return denyErr("malformed resource id")
+		return prepared{}, "malformed resource id"
 	}
 
 	set := platformSet
@@ -544,31 +589,15 @@ func Evaluate(c *Compiled, req Request, now time.Time) Result {
 		Tags:       cedar.NewRecord(tags),
 	}
 
-	getter := layered{overlay: overlay, base: base}
-	decision, diag := cedar.Authorize(set, getter, cedar.Request{
-		Principal: principalUID,
-		Action:    cedar.NewEntityUID("Action", cedar.String(req.Action)),
-		Resource:  resourceUID,
-		// The only context: trusted time, as an integer Cedar Long (US5).
-		Context: cedar.NewRecord(cedar.RecordMap{"currentTime": cedar.Long(now.Unix())}),
-	})
-
-	if len(diag.Errors) > 0 {
-		r := Result{Decision: Deny, DeterminingPolicies: []string{}, Errored: true}
-		for _, e := range diag.Errors {
-			r.Diagnostics = append(r.Diagnostics, fmt.Sprintf("%s: %s", e.PolicyID, e.Message))
-		}
-		return r
-	}
-	ids := make([]string, 0, len(diag.Reasons))
-	for _, reason := range diag.Reasons {
-		ids = append(ids, string(reason.PolicyID))
-	}
-	sort.Strings(ids)
-	if decision == cedar.Allow {
-		return Result{Decision: Allow, DeterminingPolicies: ids}
-	}
-	return Result{Decision: Deny, DeterminingPolicies: ids}
+	return prepared{
+		set:      set,
+		entities: layered{overlay: overlay, base: base},
+		req: cedar.Request{
+			Principal: principalUID,
+			Action:    cedar.NewEntityUID("Action", cedar.String(req.Action)),
+			Resource:  resourceUID,
+		},
+	}, ""
 }
 
 func denyErr(msg string) Result {
