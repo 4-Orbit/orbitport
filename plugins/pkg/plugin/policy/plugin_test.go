@@ -88,7 +88,7 @@ func TestAgentsCannotCallAnyPolicyMethod(t *testing.T) {
 		require.Error(t, err, m)
 		assert.Equal(t, codes.PermissionDenied, status.Code(err), m)
 	}
-	events := p.audit.list(tenant, auditFilter{Decision: "DENY"})
+	events, _ := p.audit.list(tenant, auditFilter{Decision: "DENY"})
 	require.NotEmpty(t, events)
 	assert.Equal(t, []string{"platform.agents-never-administer-policy"}, events[0].DeterminingPolicies)
 }
@@ -252,11 +252,13 @@ func TestRecordAndListAudit(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 4, resp.Accepted)
 
-	events := p.audit.list(tenant, auditFilter{})
+	events, _ := p.audit.list(tenant, auditFilter{})
 	require.Len(t, events, 3, "ring keeps the newest N")
 	assert.Equal(t, "d", events[0].RequestID, "newest first")
-	assert.Len(t, p.audit.list(tenant, auditFilter{Decision: "DENY"}), 2)
-	assert.Len(t, p.audit.list(tenant, auditFilter{AgentID: "security-agent"}), 0)
+	denies, _ := p.audit.list(tenant, auditFilter{Decision: "DENY"})
+	assert.Len(t, denies, 2)
+	none, _ := p.audit.list(tenant, auditFilter{AgentID: "security-agent"})
+	assert.Len(t, none, 0)
 
 	raw, err := os.ReadFile(filepath.Join(dir, tenantKey(tenant)+".jsonl"))
 	require.NoError(t, err)

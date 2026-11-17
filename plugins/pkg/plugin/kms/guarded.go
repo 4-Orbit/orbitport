@@ -112,7 +112,7 @@ func keyStoreResource(resourceType, name string) resourceResolver {
 	return staticResource(authz.Resource{Type: resourceType, ID: n})
 }
 
-// maxListedKeys bounds one ListKeys response.
+// maxListedKeys bounds one ListKeys page.
 const maxListedKeys = 200
 
 // ListKeys returns the tenant's key metadata for the policy playground.
@@ -125,23 +125,35 @@ func (p *Plugin) listKeysImpl(ctx context.Context, req *proto.ListKeysRequest) (
 	if err := requireClientID(req.ClientId); err != nil {
 		return nil, err
 	}
+	limit := int(req.Limit)
+	if limit <= 0 || limit > maxListedKeys {
+		limit = maxListedKeys
+	}
 	ids, err := p.client.listMetadata(ctx, req.ClientId)
 	if err != nil {
 		return nil, keyStoreBackendStatus("list keys", err)
 	}
+	// Ids are sorted, so the cursor (the last id of the previous page) marks
+	// where the next page starts, and a key created meanwhile is never skipped
+	// or repeated within one walk.
 	sort.Strings(ids)
+	start := sort.SearchStrings(ids, req.Cursor)
+	if start < len(ids) && ids[start] == req.Cursor {
+		start++
+	}
 	resp := &proto.ListKeysResponse{}
-	for _, id := range ids {
-		if len(resp.Keys) >= maxListedKeys {
-			resp.Truncated = true
-			break
-		}
-		md, err := p.client.getMetadata(ctx, req.ClientId, id)
+	i := start
+	for ; i < len(ids) && len(resp.Keys) < limit; i++ {
+		md, err := p.client.getMetadata(ctx, req.ClientId, ids[i])
 		if err != nil {
-			logger.Warnf("ListKeys skipped unreadable metadata key_id=%s", id)
+			logger.Warnf("ListKeys skipped unreadable metadata key_id=%s", ids[i])
 			continue
 		}
 		resp.Keys = append(resp.Keys, toProtoMetadata(md))
+	}
+	if i < len(ids) {
+		resp.NextCursor = ids[i-1]
+		resp.Truncated = true
 	}
 	return resp, nil
 }

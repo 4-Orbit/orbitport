@@ -80,7 +80,7 @@ impl PolicyCall {
         plugin_catalog: &PluginCatalog,
     ) -> Result<Box<RawValue>, tonic::Status> {
         match self.method.as_str() {
-            "policy.ListKeys" => list_keys(caller, plugin_catalog).await,
+            "policy.ListKeys" => list_keys(self.params.get(), caller, plugin_catalog).await,
             "policy.IssueAgentToken" => issue_agent_token(self, caller, plugin_catalog).await,
             _ => forward(&self.method, self.params.get(), caller, plugin_catalog).await,
         }
@@ -111,17 +111,37 @@ async fn forward(
         .map_err(|_| tonic::Status::internal("policy plugin returned invalid JSON"))
 }
 
+/// Optional paging for policy.ListKeys; unknown fields are rejected.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ListKeysParams {
+    #[serde(default)]
+    cursor: String,
+    #[serde(default)]
+    limit: u32,
+}
+
 async fn list_keys(
+    params_json: &str,
     caller: &Caller,
     plugin_catalog: &PluginCatalog,
 ) -> Result<Box<RawValue>, tonic::Status> {
+    let params: ListKeysParams = if params_json.trim() == "null" {
+        ListKeysParams::default()
+    } else {
+        serde_json::from_str(params_json)
+            .map_err(|e| tonic::Status::invalid_argument(format!("invalid params: {e}")))?
+    };
+    if params.cursor.len() > 512 {
+        return Err(tonic::Status::invalid_argument("invalid cursor"));
+    }
     let client = plugin_catalog
         .get_kms_client()
         .await
         .map_err(|_| tonic::Status::unavailable("KMS plugin unavailable"))?;
     let value = KmsService::new(client)
         .with_caller(caller.clone())
-        .list_keys(&caller.tenant)
+        .list_keys(&caller.tenant, &params.cursor, params.limit)
         .await?;
     serde_json::value::to_raw_value(&value)
         .map_err(|_| tonic::Status::internal("failed to encode key list"))

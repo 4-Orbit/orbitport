@@ -92,6 +92,14 @@ export interface Cell {
   determiningPolicies: string[];
 }
 
+export interface PrincipalSummary {
+  /** "" = the account principal. */
+  principal: string;
+  roles: string[];
+  allowedKeys: number;
+  byAction: Record<string, number>;
+}
+
 export interface MatrixResult {
   source: string;
   at: number;
@@ -101,6 +109,13 @@ export interface MatrixResult {
   keys: string[];
   agentRoles: Record<string, string[]>;
   cells: Cell[];
+  /** Present when requested with summary: true (no cells then). */
+  summary?: PrincipalSummary[];
+  /** Paging: totals over the whole key / principal lists and this page's offsets. */
+  totalKeys: number;
+  keyOffset: number;
+  totalPrincipals: number;
+  agentOffset: number;
 }
 
 export interface CellChange {
@@ -196,6 +211,8 @@ export interface AuditEvent {
 }
 
 export interface AuditFilter {
+  /** nextCursor of the previous page; empty = newest. */
+  cursor?: string;
   limit?: number;
   agentId?: string;
   decision?: Decision | "";
@@ -205,6 +222,8 @@ export interface AuditFilter {
 
 export interface AuditResult {
   events: AuditEvent[];
+  /** Cursor for older matching events; "" = none left. */
+  nextCursor: string;
   summary: { total: number; allow: number; deny: number; kmsCalled: number; errors: number };
 }
 

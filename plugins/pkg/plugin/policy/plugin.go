@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -347,14 +347,34 @@ func (p *Plugin) getActive(ctx context.Context, c *call) (any, error) {
 }
 
 func (p *Plugin) listVersions(ctx context.Context, c *call) (any, error) {
-	list, err := p.store.ListVersions(ctx, c.principal.Tenant, maxVersionsList)
+	var params struct {
+		// Opaque: pass back nextCursor from the previous page.
+		Cursor string `json:"cursor,omitempty"`
+		Limit  int    `json:"limit,omitempty"`
+	}
+	if err := c.decode(&params); err != nil {
+		return nil, err
+	}
+	before := int64(0)
+	if params.Cursor != "" {
+		n, err := strconv.ParseInt(params.Cursor, 10, 64)
+		if err != nil || n < 1 {
+			return nil, status.Error(codes.InvalidArgument, "invalid cursor")
+		}
+		before = n
+	}
+	if params.Limit <= 0 || params.Limit > maxVersionsList {
+		params.Limit = maxVersionsList
+	}
+	list, next, err := p.store.ListVersions(ctx, c.principal.Tenant, before, params.Limit)
 	if err != nil {
 		return nil, err
 	}
-	if list == nil {
-		list = []VersionInfo{}
+	nextCursor := ""
+	if next > 0 {
+		nextCursor = strconv.FormatInt(next, 10)
 	}
-	return map[string]any{"versions": list}, nil
+	return map[string]any{"versions": list, "nextCursor": nextCursor}, nil
 }
 
 func (p *Plugin) getVersion(ctx context.Context, c *call) (any, error) {
@@ -390,7 +410,13 @@ func (p *Plugin) listAudit(_ context.Context, c *call) (any, error) {
 	if err := c.decode(&f); err != nil {
 		return nil, err
 	}
-	return map[string]any{"events": p.audit.list(c.principal.Tenant, f), "summary": p.audit.summary(c.principal.Tenant)}, nil
+	if f.Cursor != "" {
+		if n, err := strconv.ParseInt(f.Cursor, 10, 64); err != nil || n < 1 {
+			return nil, status.Error(codes.InvalidArgument, "invalid cursor")
+		}
+	}
+	events, next := p.audit.list(c.principal.Tenant, f)
+	return map[string]any{"events": events, "nextCursor": next, "summary": p.audit.summary(c.principal.Tenant)}, nil
 }
 
 // ---- simulation ------------------------------------------------------------
@@ -477,6 +503,58 @@ type matrixParams struct {
 	Actions        []string         `json:"actions,omitempty"`
 	IncludeAccount bool             `json:"includeAccount,omitempty"`
 	At             int64            `json:"at,omitempty"`
+	// Paging over the merged, sorted key list and over principals. The
+	// response carries totals so callers can page without dropping anything.
+	KeyOffset   int `json:"keyOffset,omitempty"`
+	KeyLimit    int `json:"keyLimit,omitempty"`
+	AgentOffset int `json:"agentOffset,omitempty"`
+	AgentLimit  int `json:"agentLimit,omitempty"`
+	// Agents restricts principals to these ids ("" = the account principal).
+	Agents []string `json:"agents,omitempty"`
+	// OnlyAllowed drops keys on which none of the selected principals has
+	// any ALLOW, before paging, so totals count only accessible keys.
+	OnlyAllowed bool `json:"onlyAllowed,omitempty"`
+	// KeySearch keeps keys whose id contains this text (case-insensitive).
+	KeySearch string `json:"keySearch,omitempty"`
+	// Summary returns per-principal counts over every key instead of cells.
+	Summary bool `json:"summary,omitempty"`
+}
+
+// principalSummary is one agent's access at a glance, over every key.
+type principalSummary struct {
+	Principal   string         `json:"principal"`
+	Roles       []string       `json:"roles"`
+	AllowedKeys int            `json:"allowedKeys"`
+	ByAction    map[string]int `json:"byAction"`
+}
+
+const (
+	maxMatrixInputKeys = 5000
+	defaultMatrixKeys  = 50
+	maxMatrixKeys      = 100
+	defaultMatrixAgent = 25
+	maxMatrixAgents    = 50
+)
+
+// pageWindow clamps an offset/limit pair to a list of n items.
+func pageWindow(n, offset, limit, def, max int) (int, int) {
+	if limit <= 0 {
+		limit = def
+	}
+	if limit > max {
+		limit = max
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > n {
+		offset = n
+	}
+	end := offset + limit
+	if end > n {
+		end = n
+	}
+	return offset, end
 }
 
 func checkActions(actions []string) ([]string, error) {
@@ -503,8 +581,8 @@ func (p *Plugin) matrix(ctx context.Context, c *call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(params.Keys) > 200 {
-		return nil, status.Error(codes.InvalidArgument, "at most 200 keys")
+	if len(params.Keys) > maxMatrixInputKeys {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d keys", maxMatrixInputKeys)
 	}
 	r, err := p.resolve(ctx, c.principal.Tenant, params.Source)
 	if err != nil {
@@ -515,14 +593,92 @@ func (p *Plugin) matrix(ctx context.Context, c *call) (any, error) {
 	if params.IncludeAccount {
 		principals = append([]string{""}, principals...)
 	}
-	keys := authz.MergeKeys(params.Keys, r.compiled.ReferencedKeys())
-	cells := authz.Matrix(r.compiled, c.principal.Tenant, principals, actions, keys, at)
+	if len(params.Agents) > 0 {
+		want := map[string]bool{}
+		for _, a := range params.Agents {
+			want[a] = true
+		}
+		kept := principals[:0:0]
+		for _, pr := range principals {
+			if want[pr] {
+				kept = append(kept, pr)
+			}
+		}
+		principals = kept
+	}
+	allKeys := authz.MergeKeys(params.Keys, r.compiled.ReferencedKeys())
+	if q := strings.ToLower(strings.TrimSpace(params.KeySearch)); q != "" {
+		kept := allKeys[:0:0]
+		for _, k := range allKeys {
+			if strings.Contains(strings.ToLower(k.ID), q) {
+				kept = append(kept, k)
+			}
+		}
+		allKeys = kept
+	}
+	tenant := c.principal.Tenant
+	allowed := func(pr string, k authz.Resource, action string) bool {
+		res := authz.Evaluate(r.compiled, authz.Request{
+			Principal: authz.Principal{Tenant: tenant, AgentID: pr},
+			Action:    action,
+			Resource:  authz.Resource{Type: authz.ResourceTypeFor(action), ID: k.ID, Attrs: k.Attrs, Tags: k.Tags},
+		}, at)
+		return res.Decision == authz.Allow
+	}
+	if params.OnlyAllowed {
+		kept := allKeys[:0:0]
+		for _, k := range allKeys {
+		keyLoop:
+			for _, pr := range principals {
+				for _, action := range actions {
+					if allowed(pr, k, action) {
+						kept = append(kept, k)
+						break keyLoop
+					}
+				}
+			}
+		}
+		allKeys = kept
+	}
+	aFrom, aTo := pageWindow(len(principals), params.AgentOffset, params.AgentLimit, defaultMatrixAgent, maxMatrixAgents)
+	totalPrincipals := len(principals)
+	principals = principals[aFrom:aTo]
+
+	if params.Summary {
+		summaries := make([]principalSummary, 0, len(principals))
+		for _, pr := range principals {
+			s := principalSummary{Principal: pr, Roles: r.compiled.AgentRoles(pr), ByAction: map[string]int{}}
+			for _, k := range allKeys {
+				hasAccess := false
+				for _, action := range actions {
+					if allowed(pr, k, action) {
+						s.ByAction[action]++
+						hasAccess = true
+					}
+				}
+				if hasAccess {
+					s.AllowedKeys++
+				}
+			}
+			summaries = append(summaries, s)
+		}
+		return map[string]any{
+			"source": r.label, "at": at.Unix(), "simulatedTime": simulated, "actions": actions,
+			"summary": summaries, "totalKeys": len(allKeys), "totalPrincipals": totalPrincipals, "agentOffset": aFrom,
+		}, nil
+	}
+
+	kFrom, kTo := pageWindow(len(allKeys), params.KeyOffset, params.KeyLimit, defaultMatrixKeys, maxMatrixKeys)
+	keys := allKeys[kFrom:kTo]
+	cells := authz.Matrix(r.compiled, tenant, principals, actions, keys, at)
 	if cells == nil {
 		cells = []authz.Cell{}
 	}
 	agentRoles := map[string][]string{}
-	for _, a := range r.compiled.Agents() {
-		agentRoles[a] = r.compiled.AgentRoles(a)
+	for _, a := range principals {
+		if a != "" {
+			agentRoles[a] = r.compiled.AgentRoles(a)
+		}
 	}
 	keyIDs := make([]string, 0, len(keys))
 	for _, k := range keys {
@@ -531,6 +687,7 @@ func (p *Plugin) matrix(ctx context.Context, c *call) (any, error) {
 	return map[string]any{
 		"source": r.label, "at": at.Unix(), "simulatedTime": simulated,
 		"principals": principals, "actions": actions, "keys": keyIDs, "agentRoles": agentRoles, "cells": cells,
+		"totalKeys": len(allKeys), "keyOffset": kFrom, "totalPrincipals": totalPrincipals, "agentOffset": aFrom,
 	}, nil
 }
 
@@ -657,42 +814,23 @@ func (p *Plugin) save(ctx context.Context, c *call, b authz.Bundle, message stri
 
 // findIdentical returns a saved version whose policies and entities equal b
 // (entities compared as JSON values), or 0. The active version wins when it
-// matches; otherwise the newest match.
+// matches; otherwise the newest match, found through the content index so
+// versions of any age are checked.
 func (p *Plugin) findIdentical(ctx context.Context, tenant string, b authz.Bundle) (int64, error) {
 	want := canonicalEntities(b.Entities)
-	if v, err := p.activeVersion(ctx, tenant); err == nil && v.Policies == b.Policies && canonicalEntities(v.Entities) == want {
+	same := func(v *Version) bool { return v.Policies == b.Policies && canonicalEntities(v.Entities) == want }
+	if v, err := p.activeVersion(ctx, tenant); err == nil && same(v) {
 		return v.Version, nil
 	}
-	versions, err := p.store.ListVersions(ctx, tenant, maxVersionsList)
-	if err != nil {
+	n, err := p.store.FindByContent(ctx, tenant, contentHash(b.Policies, b.Entities))
+	if err != nil || n == 0 {
 		return 0, err
 	}
-	for _, info := range versions {
-		v, err := p.store.GetVersion(ctx, tenant, info.Version)
-		if err != nil {
-			continue
-		}
-		if v.Policies == b.Policies && canonicalEntities(v.Entities) == want {
-			return v.Version, nil
-		}
+	// Trust the index only after comparing the real content.
+	if v, err := p.store.GetVersion(ctx, tenant, n); err == nil && same(v) {
+		return n, nil
 	}
 	return 0, nil
-}
-
-// canonicalEntities renders an entity list order-independently, so the same
-// agents and roles compare equal however they were written.
-func canonicalEntities(raw json.RawMessage) string {
-	var list []any
-	if len(bytes.TrimSpace(raw)) == 0 || json.Unmarshal(raw, &list) != nil {
-		list = []any{}
-	}
-	items := make([]string, 0, len(list))
-	for _, e := range list {
-		b, _ := json.Marshal(e)
-		items = append(items, string(b))
-	}
-	sort.Strings(items)
-	return strings.Join(items, "\n")
 }
 
 func (p *Plugin) putTests(ctx context.Context, c *call) (any, error) {

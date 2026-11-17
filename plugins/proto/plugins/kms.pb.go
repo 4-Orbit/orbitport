@@ -27,8 +27,12 @@ const (
 )
 
 type ListKeysRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientId      string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ClientId string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// Key id to continue after (next_cursor from the previous page); empty = first page.
+	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// Page size; 0 or above the plugin maximum means the maximum (200).
+	Limit         uint32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -70,11 +74,27 @@ func (x *ListKeysRequest) GetClientId() string {
 	return ""
 }
 
+func (x *ListKeysRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *ListKeysRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
 type ListKeysResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Keys  []*KeyMetadata         `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
-	// True when the tenant has more keys than the plugin returns in one call.
-	Truncated     bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// True when more keys follow; same as next_cursor being non-empty.
+	Truncated bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// Pass as cursor to get the next page; empty on the last page.
+	NextCursor    string `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -121,6 +141,13 @@ func (x *ListKeysResponse) GetTruncated() bool {
 		return x.Truncated
 	}
 	return false
+}
+
+func (x *ListKeysResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type Tag struct {
@@ -1927,12 +1954,16 @@ var File_proto_plugins_kms_proto protoreflect.FileDescriptor
 
 const file_proto_plugins_kms_proto_rawDesc = "" +
 	"\n" +
-	"\x17proto/plugins/kms.proto\x12\x06kmsapi\".\n" +
+	"\x17proto/plugins/kms.proto\x12\x06kmsapi\"\\\n" +
 	"\x0fListKeysRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\"Y\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\"z\n" +
 	"\x10ListKeysResponse\x12'\n" +
 	"\x04keys\x18\x01 \x03(\v2\x13.kmsapi.KeyMetadataR\x04keys\x12\x1c\n" +
-	"\ttruncated\x18\x02 \x01(\bR\ttruncated\";\n" +
+	"\ttruncated\x18\x02 \x01(\bR\ttruncated\x12\x1f\n" +
+	"\vnext_cursor\x18\x03 \x01(\tR\n" +
+	"nextCursor\";\n" +
 	"\x03Tag\x12\x17\n" +
 	"\atag_key\x18\x01 \x01(\tR\x06tagKey\x12\x1b\n" +
 	"\ttag_value\x18\x02 \x01(\tR\btagValue\"\x93\x03\n" +

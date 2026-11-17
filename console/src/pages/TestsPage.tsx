@@ -6,6 +6,9 @@ import type { Decision, TestCase, TestReport } from "../types.ts";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { SourcePicker, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { useVersions } from "./shared.ts";
+import { Pager } from "../components/Pager.tsx";
+
+const TESTS_PER_PAGE = 50;
 
 /** The tenant's saved expectations. Activation refuses a version that fails any. */
 export function TestsPage() {
@@ -16,6 +19,8 @@ export function TestsPage() {
   const [choice, setChoice] = useState<SourceChoice>("draft");
   const [report, setReport] = useState<TestReport | null>(null);
   const [onlyFailures, setOnlyFailures] = useState(false);
+  const [search, setSearch] = useState("");
+  const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [newCase, setNewCase] = useState<TestCase>({ name: "", agentId: "", action: "kms.Encrypt", resource: { type: "Key", id: "" }, expect: "DENY" });
 
@@ -49,7 +54,15 @@ export function TestsPage() {
   };
 
   const resultByName = new Map(report?.results.map((r) => [r.name, r]));
-  const shown = (tests ?? []).filter((t) => !onlyFailures || resultByName.get(t.name)?.pass === false);
+  const q = search.trim().toLowerCase();
+  const filtered = (tests ?? [])
+    .map((t, index) => ({ t, index }))
+    .filter(({ t }) => !onlyFailures || resultByName.get(t.name)?.pass === false)
+    .filter(({ t }) => !q || [t.name, t.agentId ?? "", t.action, t.resource.id].some((f) => f.toLowerCase().includes(q)))
+    // After a run, failures come first so they are never on a later page.
+    .sort((a, b) => Number(resultByName.get(a.t.name)?.pass !== false) - Number(resultByName.get(b.t.name)?.pass !== false) || a.index - b.index);
+  const pageStart = Math.min(offset, Math.max(0, filtered.length - 1 - ((filtered.length - 1) % TESTS_PER_PAGE)));
+  const shown = filtered.slice(pageStart, pageStart + TESTS_PER_PAGE).map(({ t }) => t);
 
   return (
     <>
@@ -65,7 +78,14 @@ export function TestsPage() {
           Save suite
         </button>
         <label className="field inline checkbox">
-          <input type="checkbox" checked={onlyFailures} onChange={(e) => setOnlyFailures(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={onlyFailures}
+            onChange={(e) => {
+              setOnlyFailures(e.target.checked);
+              setOffset(0);
+            }}
+          />
           <span>Only failures</span>
         </label>
         {report && (
@@ -107,6 +127,21 @@ export function TestsPage() {
       </section>
 
       <section className="panel">
+        <div className="row list-toolbar">
+          <input
+            aria-label="Search tests"
+            placeholder="search by name, agent, action or key…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setOffset(0);
+            }}
+          />
+          <span className="muted small">
+            {filtered.length} of {(tests ?? []).length} tests
+          </span>
+          <Pager label="Tests" offset={pageStart} pageSize={TESTS_PER_PAGE} total={filtered.length} onChange={setOffset} />
+        </div>
         <div className="table-wrap">
           <table>
             <thead>

@@ -10,6 +10,8 @@ interface Props {
   roles: string[];
   agents: string[];
   keys: KeyInfo[];
+  /** More keys exist than were loaded; the user can still type any alias. */
+  moreKeys?: boolean;
   /** Key ids named anywhere in the policies (may not exist in the KMS yet). */
   referencedKeys: string[];
   takenIds: Set<string>;
@@ -17,10 +19,20 @@ interface Props {
   onCancel: () => void;
 }
 
+/** Key checkboxes shown at once; the rest are reached by searching. */
+const KEY_PICKS = 20;
+
+/** Selected keys always show; then the first matches of the search. */
+function visibleKeys(all: string[], selected: string[], search: string): { shown: string[]; hidden: number } {
+  const q = search.trim().toLowerCase();
+  const matches = all.filter((k) => !selected.includes(k) && (!q || k.toLowerCase().includes(q)));
+  return { shown: [...selected, ...matches.slice(0, KEY_PICKS)], hidden: Math.max(0, matches.length - KEY_PICKS) };
+}
+
 const fromEpochLocal = (s: number) => new Date(s * 1000).toISOString().slice(0, 19);
 
 /** Plain-language form for one rule. Cedar is generated from it. */
-export function RuleBuilder({ initial, roles, agents, keys, referencedKeys, takenIds, onSave, onCancel }: Props) {
+export function RuleBuilder({ initial, roles, agents, keys, moreKeys = false, referencedKeys, takenIds, onSave, onCancel }: Props) {
   const [effect, setEffect] = useState<Effect>(initial?.effect ?? "permit");
   const [who, setWho] = useState<Who>(initial?.who ?? (roles[0] ? { kind: "role", id: roles[0] } : { kind: "anyAgent" }));
   // "Everything" is its own explicit choice: an empty selection must never
@@ -33,6 +45,7 @@ export function RuleBuilder({ initial, roles, agents, keys, referencedKeys, take
   const [customId, setCustomId] = useState<string | null>(initial?.id ?? null);
   const [showCedar, setShowCedar] = useState(false);
   const [newKey, setNewKey] = useState("");
+  const [keySearch, setKeySearch] = useState("");
 
   const keyIds = useMemo(() => [...new Set([...keys.map((k) => k.alias), ...referencedKeys, ...(on.kind === "keys" ? on.ids : [])])].sort(), [keys, referencedKeys, on]);
   const tagOptions = useMemo(() => {
@@ -187,7 +200,10 @@ export function RuleBuilder({ initial, roles, agents, keys, referencedKeys, take
           </div>
           {on.kind === "keys" && (
             <div className="key-picks">
-              {keyIds.map((k) => {
+              {keyIds.length > KEY_PICKS && (
+                <input aria-label="Find a key" placeholder={`find among ${keyIds.length} keys…`} value={keySearch} onChange={(e) => setKeySearch(e.target.value)} />
+              )}
+              {visibleKeys(keyIds, on.ids, keySearch).shown.map((k) => {
                 const info = keys.find((x) => x.alias === k);
                 return (
                   <label key={k} className="check">
@@ -197,6 +213,12 @@ export function RuleBuilder({ initial, roles, agents, keys, referencedKeys, take
                   </label>
                 );
               })}
+              {visibleKeys(keyIds, on.ids, keySearch).hidden > 0 && (
+                <p className="muted small">
+                  {visibleKeys(keyIds, on.ids, keySearch).hidden} more keys{keySearch ? " match" : ""}; {keySearch ? "refine the search" : "search to find them"}.
+                </p>
+              )}
+              {moreKeys && <p className="muted small">Showing the first {keys.length} keys from the KMS. Type any other key's alias below.</p>}
               <span className="row">
                 <input aria-label="Another key" placeholder="another key alias" value={newKey} onChange={(e) => setNewKey(e.target.value.trim())} />
                 <button

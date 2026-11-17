@@ -40,17 +40,37 @@ export const getHealth = async (): Promise<T.Health> => {
 export const api = {
   schema: () => rpc<T.SchemaInfo>("policy.GetSchema"),
   active: () => rpc<T.ActiveResult>("policy.GetActive"),
-  versions: () => rpc<{ versions: T.VersionInfo[] }>("policy.ListVersions"),
+  /** One page of versions, newest first; pass nextCursor back for older ones. */
+  versions: (cursor = "", limit?: number) =>
+    rpc<{ versions: T.VersionInfo[]; nextCursor: string }>("policy.ListVersions", { ...(cursor && { cursor }), ...(limit && { limit }) }),
   version: (version: number) => rpc<{ version: T.Version }>("policy.GetVersion", { version }),
   tests: () => rpc<{ tests: T.TestCase[] }>("policy.GetTests"),
   putTests: (tests: T.TestCase[]) => rpc<{ count: number }>("policy.PutTests", { tests }),
   runTests: (source?: T.Source, tests?: T.TestCase[]) => rpc<T.TestReport>("policy.RunTests", { ...(source && { source }), ...(tests && { tests }) }),
   audit: (filter: T.AuditFilter) => rpc<T.AuditResult>("policy.ListAudit", { ...filter }),
-  keys: () => rpc<{ keys: T.KeyInfo[]; truncated: boolean }>("policy.ListKeys"),
+  /** One page of keys (≤ 200), in key-id order. */
+  keys: (cursor = "", limit?: number) =>
+    rpc<{ keys: T.KeyInfo[]; truncated: boolean; nextCursor: string }>("policy.ListKeys", { ...(cursor && { cursor }), ...(limit && { limit }) }),
   validate: (bundle: T.Bundle) => rpc<T.ValidateResult>("policy.Validate", { ...bundle }),
   simulate: (requests: T.SimRequest[], source?: T.Source, at?: number) =>
     rpc<T.SimulateResult>("policy.Simulate", { requests, ...(source && { source }), ...(at && { at }) }),
-  matrix: (params: { source?: T.Source; keys?: T.Resource[]; includeAccount?: boolean; at?: number }) => rpc<T.MatrixResult>("policy.Matrix", params),
+  matrix: (params: {
+    source?: T.Source;
+    keys?: T.Resource[];
+    includeAccount?: boolean;
+    at?: number;
+    keyOffset?: number;
+    keyLimit?: number;
+    agentOffset?: number;
+    agentLimit?: number;
+    /** Restrict to these principals ("" = account). */
+    agents?: string[];
+    /** Only keys where the selected principals have some access. */
+    onlyAllowed?: boolean;
+    keySearch?: string;
+    /** Per-principal counts over every key instead of cells. */
+    summary?: boolean;
+  }) => rpc<T.MatrixResult>("policy.Matrix", params),
   diff: (from: T.Source | undefined, to: T.Source | undefined, keys?: T.Resource[]) =>
     rpc<T.DiffResult>("policy.Diff", { ...(from && { from }), ...(to && { to }), ...(keys && { keys }) }),
   /** Saves a version; an identical existing version is returned with duplicate=true instead. */
