@@ -10,19 +10,25 @@ interface Props {
   /** The exact text `validation` describes; spans index into it. */
   validatedText: string;
   keys: KeyInfo[];
+  /** More keys exist than were loaded. */
+  moreKeys?: boolean;
   onEditCedar: () => void;
   onChanged: (message: string) => void;
 }
 
+/** Rule cards rendered at once; "Show more" adds another window. */
+const RULES_PER_PAGE = 50;
+
 type Editing = { kind: "new" } | { kind: "edit"; index: number } | null;
 
 /** The plain-language view of the draft's policies, with the rule builder. */
-export function RulesView({ validation, validatedText, keys, onEditCedar, onChanged }: Props) {
+export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged }: Props) {
   const draft = useDraft();
   // Edits use the validated spans, so they wait until validation catches up.
   const stale = validatedText !== draft.policies;
   const [editing, setEditing] = useState<Editing>(null);
   const [filter, setFilter] = useState("");
+  const [visible, setVisible] = useState(RULES_PER_PAGE);
 
   const infos = validation?.policies ?? null;
   const cards = useMemo(
@@ -62,7 +68,9 @@ export function RulesView({ validation, validatedText, keys, onEditCedar, onChan
   };
 
   const q = filter.trim().toLowerCase();
-  const shown = cards.map((c, index) => ({ ...c, index })).filter((c) => !q || c.text.toLowerCase().includes(q) || c.info.id.toLowerCase().includes(q));
+  const matching = cards.map((c, index) => ({ ...c, index })).filter((c) => !q || c.text.toLowerCase().includes(q) || c.info.id.toLowerCase().includes(q));
+  // Render in windows: the rule being edited is always included.
+  const shown = matching.filter((c, i) => i < visible || (editing?.kind === "edit" && editing.index === c.index));
   const allows = cards.filter((c) => c.info.effect === "permit").length;
   const custom = cards.filter((c) => !c.rule).length;
 
@@ -72,14 +80,22 @@ export function RulesView({ validation, validatedText, keys, onEditCedar, onChan
         <button type="button" className="button primary" disabled={stale || editing !== null} onClick={() => setEditing({ kind: "new" })}>
           + Add rule
         </button>
-        <input aria-label="Filter rules" placeholder="filter by agent, role, key…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input
+          aria-label="Filter rules"
+          placeholder="filter by agent, role, key…"
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setVisible(RULES_PER_PAGE);
+          }}
+        />
         <span className="muted small">
           {cards.length} rules · {allows} allow · {cards.length - allows} block{custom ? ` · ${custom} custom` : ""}
         </span>
       </div>
 
       {editing?.kind === "new" && (
-        <RuleBuilder initial={null} roles={roles} agents={agents} keys={keys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
+        <RuleBuilder initial={null} roles={roles} agents={agents} keys={keys} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
       )}
 
       {cards.length === 0 && editing === null && (
@@ -102,6 +118,7 @@ export function RulesView({ validation, validatedText, keys, onEditCedar, onChan
               roles={roles}
               agents={agents}
               keys={keys}
+              moreKeys={moreKeys}
               referencedKeys={validation?.summary?.referencedKeys ?? []}
               takenIds={takenIds}
               onSave={save}
@@ -126,6 +143,16 @@ export function RulesView({ validation, validatedText, keys, onEditCedar, onChan
           ),
         )}
       </div>
+      {matching.length > visible && (
+        <div className="list-footer">
+          <span className="muted small">
+            Showing {Math.min(visible, matching.length)} of {matching.length} {q ? "matching " : ""}rules
+          </span>
+          <button type="button" className="button small" onClick={() => setVisible((v) => v + RULES_PER_PAGE)}>
+            Show {Math.min(RULES_PER_PAGE, matching.length - visible)} more
+          </button>
+        </div>
+      )}
     </div>
   );
 }

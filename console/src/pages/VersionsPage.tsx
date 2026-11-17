@@ -1,6 +1,7 @@
 import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
+import { appendPage } from "../paging.ts";
 import { useDraft } from "../draft.tsx";
 import { go } from "../route.ts";
 import type { ActivateResult, CellChange, Version, VersionInfo } from "../types.ts";
@@ -8,21 +9,46 @@ import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { LineDiff } from "../components/LineDiff.tsx";
 import { formatTime } from "../format.ts";
 
+/** Versions per page on this tab. */
+const VERSIONS_PAGE = 20;
+
 /** Saved versions: inspect, compare, activate (gated by tests), roll back. */
 export function VersionsPage({ onActivated }: { onActivated: () => void }) {
   const draft = useDraft();
   const [versions, setVersions] = useState<VersionInfo[] | null>(null);
+  const [nextCursor, setNextCursor] = useState("");
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [selected, setSelected] = useState<Version | null>(null);
   const [active, setActive] = useState<Version | null>(null);
   const [changes, setChanges] = useState<CellChange[] | null>(null);
-  const [activation, setActivation] = useState<{ version: number; result: ActivateResult } | null>(null);
+  const [activation, setActivation] = useState<{ version: number; previous: number | null; result: ActivateResult } | null>(null);
+  const [jump, setJump] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
-    api.versions().then((r) => setVersions(r.versions)).catch((e: Error) => setError(e.message));
+    api
+      .versions("", VERSIONS_PAGE)
+      .then((r) => {
+        setVersions(r.versions);
+        setNextCursor(r.nextCursor ?? "");
+      })
+      .catch((e: Error) => setError(e.message));
     api.active().then((a) => setActive(a.version ?? null)).catch(() => setActive(null));
   }, [refresh]);
+
+  async function loadOlder() {
+    setLoadingOlder(true);
+    try {
+      const r = await api.versions(nextCursor, VERSIONS_PAGE);
+      setVersions((cur) => appendPage(cur ?? [], r.versions, (v) => String(v.version)));
+      setNextCursor(r.nextCursor ?? "");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
 
   async function open(v: number) {
     try {
@@ -37,8 +63,9 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
 
   async function activate(v: number, force = false) {
     try {
+      const previous = active?.version ?? null;
       const result = await api.activate(v, force);
-      setActivation({ version: v, result });
+      setActivation({ version: v, previous, result });
       if (result.activated) {
         setRefresh((x) => x + 1);
         onActivated();
@@ -60,6 +87,41 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
           <span className="muted small">versions are immutable; activation moves the pointer, rollback re-activates an older one</span>
         </header>
         {error && <div className="banner banner-error inline-banner">{error}</div>}
+        <div className="restore-callout">
+          <div>
+            <p className="enforced-now">
+              <strong>Currently enforced:</strong>{" "}
+              {active ? (
+                <>
+                  <span className="badge decision decision-allow">v{active.version}</span> {active.message || <span className="muted">no message</span>}{" "}
+                  <button type="button" className="link-button" onClick={() => void open(active.version)}>
+                    open
+                  </button>
+                </>
+              ) : (
+                <span className="muted">no version is active, so agents are denied everything</span>
+              )}
+            </p>
+            <strong>↩ Go back to an earlier version:</strong> click <strong>Restore</strong> on any older version (or open it and use the button there). Its tests run
+            first, then the KMS enforces it within about 5 seconds. Nothing is deleted, so you can restore a newer version again at any time.
+          </div>
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number(jump.replace(/^v/i, ""));
+              if (Number.isInteger(n) && n >= 1) void open(n);
+            }}
+          >
+            <label className="field inline">
+              <span>Go to version</span>
+              <input className="version-input" inputMode="numeric" placeholder="e.g. 3" value={jump} onChange={(e) => setJump(e.target.value.trim())} />
+            </label>
+            <button type="submit" className="button small" disabled={!/^v?\d+$/i.test(jump)}>
+              Open
+            </button>
+          </form>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -74,25 +136,26 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
             </thead>
             <tbody>
               {(versions ?? []).map((v) => (
-                <tr key={v.version} className={selected?.version === v.version ? "selected" : undefined} onClick={() => void open(v.version)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && void open(v.version)}>
+                <tr key={v.version} className={[selected?.version === v.version && "selected", v.active && "row-active"].filter(Boolean).join(" ") || undefined} onClick={() => void open(v.version)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && void open(v.version)}>
                   <td className="mono">v{v.version}</td>
                   <td className="mono muted" title={v.createdAt}>
                     {formatTime(v.createdAt)}
                   </td>
                   <td className="muted">{v.author}</td>
                   <td>{v.message || <span className="muted">—</span>}</td>
-                  <td>{v.active ? <span className="badge decision decision-allow" title="The KMS enforces this version">ACTIVE</span> : <span className="muted" title="Saved, but the KMS doesn't enforce it">saved, not active</span>}</td>
+                  <td>{v.active ? <><span className="badge decision decision-allow" title="The KMS enforces this version">ACTIVE</span> <span className="muted small">enforced now</span></> : <span className="muted" title="Saved, but the KMS doesn't enforce it">saved, not active</span>}</td>
                   <td>
                     {!v.active && (
                       <button
                         type="button"
-                        className="button small"
+                        className={`button small${active && v.version < active.version ? " restore" : ""}`}
+                        title={active && v.version < active.version ? `Make v${v.version} the enforced version again (tests run first)` : `Make v${v.version} the enforced version (tests run first)`}
                         onClick={(e) => {
                           e.stopPropagation();
                           void activate(v.version);
                         }}
                       >
-                        {active && v.version < active.version ? "Roll back to this" : "Activate"}
+                        {active && v.version < active.version ? "↩ Restore" : "Activate"}
                       </button>
                     )}
                   </td>
@@ -101,6 +164,19 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
             </tbody>
           </table>
           {versions && versions.length === 0 && <p className="empty">No versions yet. Save one from the Policies page or run make 4orbit-seed.</p>}
+          {versions && versions.length > 0 && (
+            <div className="list-footer">
+              <span className="muted small">
+                Showing v{versions[0].version}–v{versions[versions.length - 1].version} ({versions.length} version{versions.length === 1 ? "" : "s"})
+                {nextCursor ? "; older versions exist" : "; that's all of them"}
+              </span>
+              {nextCursor && (
+                <button type="button" className="button small" disabled={loadingOlder} onClick={() => void loadOlder()}>
+                  {loadingOlder ? "Loading…" : "Load older versions"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {activation && <ActivationReport activation={activation} onForce={() => void activate(activation.version, true)} />}
       </section>
@@ -118,6 +194,13 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
               {selected.message || "no message"} · {selected.author} · {selected.createdAt}
             </p>
             <div className="row">
+              {active?.version === selected.version ? (
+                <span className="badge decision decision-allow">ACTIVE · enforced now</span>
+              ) : (
+                <button type="button" className={`button primary${active && selected.version < active.version ? " restore" : ""}`} onClick={() => void activate(selected.version)}>
+                  {active && selected.version < active.version ? `↩ Restore v${selected.version}` : `Activate v${selected.version}`}
+                </button>
+              )}
               <button
                 type="button"
                 className="button"
@@ -150,13 +233,15 @@ export function VersionsPage({ onActivated }: { onActivated: () => void }) {
   );
 }
 
-function ActivationReport({ activation, onForce }: { activation: { version: number; result: ActivateResult }; onForce: () => void }) {
+function ActivationReport({ activation, onForce }: { activation: { version: number; previous: number | null; result: ActivateResult }; onForce: () => void }) {
   const { result } = activation;
   const [confirming, setConfirming] = useState(false);
   if (result.activated) {
     return (
       <div className="banner banner-ok inline-banner" role="status">
-        Version {activation.version} is active{result.forced ? " (forced past failing tests)" : ""}: {result.tests.passed}/{result.tests.total} tests passed. The KMS plugin picks it up within its cache TTL (5 s by default).
+        {activation.previous !== null && activation.version < activation.previous ? `Restored v${activation.version}` : `Version ${activation.version} is active`}
+        {result.forced ? " (forced past failing tests)" : ""}: {result.tests.passed}/{result.tests.total} tests passed. The KMS enforces it within about 5 seconds.
+        {activation.previous !== null && activation.previous !== activation.version && ` To undo, restore or activate v${activation.previous} the same way.`}
       </div>
     );
   }

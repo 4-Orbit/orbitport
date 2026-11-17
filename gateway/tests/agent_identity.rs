@@ -29,6 +29,7 @@ struct Seen {
     agent: Arc<Mutex<Vec<Option<String>>>>,
     jti: Arc<Mutex<Vec<Option<String>>>>,
     tenant: Arc<Mutex<Vec<String>>>,
+    pages: Arc<Mutex<Vec<(String, u32)>>>,
 }
 
 impl Seen {
@@ -69,6 +70,13 @@ impl KmsPlugin for MockKms {
     ) -> Result<Response<ListKeysResponse>, Status> {
         let tenant = req.get_ref().client_id.clone();
         self.0.record(&req, &tenant);
+        let cursor = req.get_ref().cursor.clone();
+        self.0
+            .pages
+            .lock()
+            .unwrap()
+            .push((cursor.clone(), req.get_ref().limit));
+        let first_page = cursor.is_empty();
         Ok(Response::new(ListKeysResponse {
             keys: vec![KeyMetadata {
                 key_id: "kms:dev-key".into(),
@@ -80,7 +88,12 @@ impl KmsPlugin for MockKms {
                 }],
                 ..Default::default()
             }],
-            truncated: false,
+            truncated: first_page,
+            next_cursor: if first_page {
+                "kms:dev-key".into()
+            } else {
+                String::new()
+            },
         }))
     }
 
@@ -316,6 +329,29 @@ async fn policy_list_keys_goes_to_the_kms_plugin_as_the_caller() {
     let body: serde_json::Value = serde_json::from_str(raw.get()).unwrap();
     assert_eq!(body["result"]["keys"][0]["alias"], "dev-key");
     assert_eq!(body["result"]["keys"][0]["tags"][0]["key"], "env");
+    assert_eq!(body["result"]["nextCursor"], "kms:dev-key");
+
+    // The next page: cursor and limit reach the KMS plugin unchanged.
+    let req = rpc(
+        "policy.ListKeys",
+        serde_json::json!({"cursor": "kms:dev-key", "limit": 50}),
+    );
+    let raw = req.call.execute(8, "tenant-from-hold", &cat).await.unwrap();
+    let body: serde_json::Value = serde_json::from_str(raw.get()).unwrap();
+    assert_eq!(body["result"]["nextCursor"], "");
+    assert_eq!(
+        seen.pages.lock().unwrap().clone(),
+        vec![(String::new(), 0), ("kms:dev-key".to_string(), 50)]
+    );
+
+    // Unknown params are rejected rather than ignored.
+    let req = rpc("policy.ListKeys", serde_json::json!({"page": 2}));
+    let err = req
+        .call
+        .execute(9, "tenant-from-hold", &cat)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
 
 #[tokio::test]
