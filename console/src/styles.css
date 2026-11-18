@@ -1078,6 +1078,63 @@ table.compact td {
   flex-basis: 100%;
 }
 
+/* ---------- run it for real ---------- */
+
+.run-real {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.run-compare {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--real);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  max-width: 72ch;
+}
+
+.run-compare p {
+  margin: 6px 0 0;
+}
+
+.run-compare.run-agree {
+  border-left-color: var(--allow-line);
+}
+
+.run-compare.run-expected,
+.run-compare.run-unknown {
+  border-left-color: var(--warn);
+}
+
+.run-compare.run-disagree {
+  border-left-color: var(--deny-line);
+}
+
+.run-alarm {
+  color: var(--deny-line);
+  font-weight: 600;
+}
+
+.run-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.run-sides > div {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.badge.console-run {
+  background: var(--real);
+  color: var(--real-text);
+  border-color: var(--real);
+}
+
 /* ---------- simulator / tests / versions / agents ---------- */
 
 .sim-form {

@@ -37,7 +37,24 @@ export const getHealth = async (): Promise<T.Health> => {
   return (await res.json()) as T.Health;
 };
 
+/** Calls one console-server endpoint (not a gateway method). */
+async function consoleCall<R>(path: string, body?: unknown): Promise<R> {
+  let res: Response;
+  try {
+    res = await fetch(path, body === undefined ? { headers: { Accept: "application/json" } } : { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    throw new RpcError("console server unreachable");
+  }
+  const out = (await res.json().catch(() => null)) as { result?: R; error?: string } | R | null;
+  if (!res.ok) throw new RpcError((out as { error?: string } | null)?.error ?? `HTTP ${res.status}`, undefined, res.status);
+  return out as R;
+}
+
 export const api = {
+  /** Run it for real: one KMS request as the agent, decided by enforcement. */
+  runForReal: async (agentId: string, action: string, keyId: string) => (await consoleCall<{ result: T.RunResult }>("/api/run", { agentId, action, keyId })).result,
+  /** Token hashes of this console's runs (for Activity labels). */
+  consoleRuns: async () => (await consoleCall<{ jtiHashes: string[] }>("/api/console-runs")).jtiHashes,
   schema: () => rpc<T.SchemaInfo>("policy.GetSchema"),
   active: () => rpc<T.ActiveResult>("policy.GetActive"),
   /** One page of versions, newest first; pass nextCursor back for older ones. */

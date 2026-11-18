@@ -286,6 +286,21 @@ export interface AuditResult {
   summary: { total: number; allow: number; deny: number; kmsCalled: number; errors: number };
 }
 
+/** POST /api/run: one real KMS request made as an agent by the console. */
+export interface RunResult {
+  /** The KMS's decision, from its audit event; null if no event was found. */
+  decision: Decision | null;
+  kmsCalled: boolean | null;
+  /** What happened, never the payload. */
+  outcome: string;
+  failed: boolean;
+  determiningPolicies: string[];
+  /** The version the KMS enforced. */
+  policyVersion: number | null;
+  requestId: string | null;
+  jtiHash: string;
+}
+
 export interface KeyInfo {
   keyId: string;
   alias: string;

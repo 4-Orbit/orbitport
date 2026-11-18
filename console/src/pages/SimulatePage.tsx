@@ -5,6 +5,7 @@ import { entityIds, useDraft } from "../draft.tsx";
 import type { SimResult, SimulateResult, TestCase } from "../types.ts";
 import { DecisionBadge, PolicyChips, SimTimeBadge } from "../components/Badges.tsx";
 import { ExplanationView } from "../components/Explanation.tsx";
+import { RunForReal } from "../components/RunForReal.tsx";
 import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { useKeys, useSchema, useVersions } from "./shared.ts";
 
@@ -107,12 +108,12 @@ export function SimulatePage() {
   return (
     <div className="simulate-page">
       <Intro page="simulate" title="Simulate: ask “would this be allowed?”">
-        Try any agent, action and key against your <Term k="draft" />, the active version or any saved version, optionally at a <Term k="simulatedTime">simulated time</Term>. Nothing here touches the KMS. Save useful answers as <Term k="test">tests</Term>.
+        Try any agent, action and key against your <Term k="draft" />, the active version or any saved version, optionally at a <Term k="simulatedTime">simulated time</Term>. Evaluating never touches the KMS; <strong>Run it for real</strong> then sends the same request to the KMS as that agent, to compare. Save useful answers as <Term k="test">tests</Term>.
       </Intro>
       <section className="panel">
         <header className="panel-head">
           <h2>Ask Cedar</h2>
-          <span className="muted small">Nothing here calls the KMS.</span>
+          <span className="muted small">Evaluate never calls the KMS.</span>
         </header>
         <form
           className="panel-body sim-form"
@@ -201,6 +202,11 @@ export function SimulatePage() {
                 ))}
               </ul>
             )}
+            <RunForReal
+              key={`${last.at}|${JSON.stringify(result.request)}|${last.source}|${history.length}`}
+              request={result.request}
+              simulated={{ decision: result.decision, source: last.source, simulatedTime: last.simulatedTime }}
+            />
             <div className="row">
               <button type="button" className="button" onClick={() => void saveAsTest()}>
                 Save as test case

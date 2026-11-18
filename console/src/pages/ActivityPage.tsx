@@ -6,7 +6,7 @@ import { usePolling } from "../usePolling.ts";
 import { go } from "../route.ts";
 import { useDraft } from "../draft.tsx";
 import type { AuditEvent, AuditFilter, Decision, KeyInfo } from "../types.ts";
-import { DecisionBadge, KmsCalledBadge, KmsResultBadge, ModeBadge, PolicyChips } from "../components/Badges.tsx";
+import { ConsoleRunBadge, DecisionBadge, KmsCalledBadge, KmsResultBadge, ModeBadge, PolicyChips } from "../components/Badges.tsx";
 import { SummaryStrip } from "../components/SummaryStrip.tsx";
 import { formatTime } from "../format.ts";
 import { ExplanationView, LiveExplanation } from "../components/Explanation.tsx";
@@ -66,6 +66,16 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
   }
   const selected = events.find((e) => e.requestId === selectedId) ?? null;
   const keys = useKeys();
+  // Token hashes of "Run it for real" requests, refreshed with each poll.
+  const [consoleRuns, setConsoleRuns] = useState<Set<string>>(new Set());
+  const newestId = events[0]?.requestId;
+  useEffect(() => {
+    api
+      .consoleRuns()
+      .then((h) => setConsoleRuns(new Set(h)))
+      .catch(() => setConsoleRuns(new Set()));
+  }, [newestId]);
+  const fromConsole = (ev: AuditEvent) => !!ev.jtiHash && consoleRuns.has(ev.jtiHash);
   const principals = new Set(events.map((e) => e.principal)).size;
 
   return (
@@ -117,7 +127,9 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
                       <td className="mono muted" title={ev.ts}>
                         {formatTime(ev.ts)}
                       </td>
-                      <td className="mono">{uidType(ev.principal) === "Account" ? "(account)" : uidId(ev.principal)}</td>
+                      <td className="mono">
+                        {uidType(ev.principal) === "Account" ? "(account)" : uidId(ev.principal)} {fromConsole(ev) && <ConsoleRunBadge />}
+                      </td>
                       <td className="mono">{uidId(ev.action)}</td>
                       <td className="mono">{uidId(ev.resource)}</td>
                       <td>
@@ -154,7 +166,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
               )}
             </div>
           </section>
-          {selected && <Detail ev={selected} keys={keys.data} />}
+          {selected && <Detail ev={selected} keys={keys.data} fromConsole={fromConsole(selected)} />}
         </div>
       )}
     </>
@@ -187,7 +199,7 @@ function Filters({ filter, onChange }: { filter: AuditFilter; onChange: (f: Audi
   );
 }
 
-function Detail({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null }) {
+function Detail({ ev, keys, fromConsole }: { ev: AuditEvent; keys: KeyInfo[] | null; fromConsole: boolean }) {
   const draft = useDraft();
   const replayable = uidType(ev.resource) === "Key" && ev.action.startsWith('Action::"kms.');
   const replay = () => {
@@ -245,7 +257,9 @@ function Detail({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null }) {
         <dt>Policy version</dt>
         <dd className="mono">{ev.policyVersion ? `v${ev.policyVersion}` : "none (platform only)"}</dd>
         <dt>Token</dt>
-        <dd className="mono muted">{ev.jtiHash ? `jti hash ${ev.jtiHash}` : "—"}</dd>
+        <dd className="mono muted">
+          {ev.jtiHash ? `jti hash ${ev.jtiHash}` : "—"} {fromConsole && <ConsoleRunBadge />}
+        </dd>
       </dl>
       {ev.decision === "DENY" && <DenyExplanation ev={ev} keys={keys} />}
       {replayable && (

@@ -23,6 +23,15 @@ export function KmsResultBadge({ ev }: { ev: AuditEvent }) {
   return <span className="badge result result-error" title={ev.kmsResult?.errorCode}>{`ERROR ${ev.kmsResult?.errorCode ?? ""}`.trim()}</span>;
 }
 
+/** Marks audit events made by "Run it for real" from this console. */
+export function ConsoleRunBadge() {
+  return (
+    <span className="badge console-run" title="Made by “Run it for real” in this console, with a short-lived token for this agent">
+      FROM CONSOLE
+    </span>
+  );
+}
+
 export function SimTimeBadge({ at }: { at: number }) {
   return (
     <span className="badge sim-time" title="Evaluated at a simulated time; enforcement always uses the KMS plugin's clock">

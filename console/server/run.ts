@@ -13,9 +13,9 @@ import { callGateway, type GatewayResult } from "./gateway.ts";
  * never leaves this process, and no key material is returned.
  */
 
-/** Actions a console run may perform: none of them changes a key. */
-export const RUN_ACTIONS = ["kms.Encrypt", "kms.Decrypt", "kms.Sign", "kms.GenerateDataKey", "kms.GetKeyMetadata", "kms.GetPublicKey"] as const;
-export type RunAction = (typeof RUN_ACTIONS)[number];
+import { RUN_ACTIONS, type RunAction } from "../src/run-actions.ts";
+
+export { RUN_ACTIONS, type RunAction };
 
 export interface RunRequest {
   agentId: string;
