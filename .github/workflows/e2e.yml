@@ -9,7 +9,32 @@ on:
     paths-ignore: [ "examples/**" ]
 
 jobs:
+  # The build checks out SpaceComputer's private OpenBao plugins and pulls
+  # dhi.io base images, so it needs these secrets. Forks without them (such
+  # as 4-Orbit/orbitport) skip the job instead of failing on checkout;
+  # wherever the secrets exist it runs in full.
+  secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        env:
+          ETH_PLUGIN: ${{ secrets.OPENBAO_ETH_PLUGIN_PAT }}
+          THRESHOLD_PLUGIN: ${{ secrets.OPENBAO_THRESHOLD_PLUGIN_PAT }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$ETH_PLUGIN" ] && [ -n "$THRESHOLD_PLUGIN" ] && [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=E2e tests skipped::OPENBAO_ETH_PLUGIN_PAT, OPENBAO_THRESHOLD_PLUGIN_PAT, DOCKER_USERNAME and DOCKER_PASSWORD are needed to build the e2e stack; this repository doesn't have all of them."
+          fi
+
   build:
+    needs: secrets
+    if: needs.secrets.outputs.available == 'true'
     runs-on: ubuntu-latest
 
     steps:
