@@ -101,6 +101,10 @@ export function HelpPage() {
             <li>
               <strong>Default deny:</strong> an agent can do nothing until a rule allows it, and a “Blocks” rule beats any “Allows” rule.
             </li>
+            <li>
+              <strong>Why was this denied?</strong> Every DENY says why (blocked, expired, the closest rule and what it needs, or no rule at all), and <strong>Grant this…</strong>{" "}
+              prepares the fix in your draft: a rule for just that agent first, since it grants the least. Nothing is enforced until you save and activate.
+            </li>
           </ul>
         </div>
       </section>
@@ -126,7 +130,10 @@ export function HelpPage() {
               </tr>
               <tr>
                 <th scope="row">Simulate</th>
-                <td>Ask “would this request be allowed?” without calling the KMS. Supports future dates.</td>
+                <td>
+                  Ask “would this request be allowed?” without calling the KMS. Supports future dates. <strong>Run it for real</strong> then sends the same request to the KMS as the
+                  agent and shows whether enforcement agrees.
+                </td>
               </tr>
               <tr>
                 <th scope="row">Tests</th>
