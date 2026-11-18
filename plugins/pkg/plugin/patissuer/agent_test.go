@@ -62,6 +62,21 @@ func TestIssueToken_AgentID_RejectsMalformedAndOutOfRangeLifetimes(t *testing.T)
 	}
 }
 
+// The gateway computes expires_at as whole-second now + ttl, so a token at
+// exactly the minimum lifetime measures a fraction of a second short.
+func TestIssueToken_AgentMinimumLifetimeAllowsWholeSecondRounding(t *testing.T) {
+	p := newTestPlugin(t, nil)
+	min := int64(p.cfg.AgentMinTTLSecs)
+	_, err := p.IssueToken(context.Background(), &proto.IssueTokenRequest{
+		Jti: "j", Subject: "acct-1", AgentId: "developer-agent", ExpiresAt: time.Now().Unix() + min,
+	})
+	require.NoError(t, err, "a token at exactly the minimum lifetime is accepted")
+	_, err = p.IssueToken(context.Background(), &proto.IssueTokenRequest{
+		Jti: "j2", Subject: "acct-1", AgentId: "developer-agent", ExpiresAt: time.Now().Unix() + min - 2,
+	})
+	require.Error(t, err, "two seconds short is still too short")
+}
+
 func TestIssueToken_AgentTTLBoundsConfigurable(t *testing.T) {
 	p := newTestPlugin(t, map[string]string{"ORBITPORT_PATISSUER_AGENT_MAX_TTL_SECS": "172800"})
 	_, err := p.IssueToken(context.Background(), &proto.IssueTokenRequest{

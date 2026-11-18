@@ -74,7 +74,10 @@ func (p *Plugin) IssueToken(ctx context.Context, req *proto.IssueTokenRequest) (
 			return nil, status.Error(codes.InvalidArgument, "agent_id must be 1-64 characters of a-z, 0-9, - or _")
 		}
 		lifetime := exp.Sub(now)
-		if minTTL := time.Duration(p.cfg.AgentMinTTLSecs) * time.Second; lifetime < minTTL {
+		// expires_at has whole-second precision, so a token asked for at
+		// exactly the minimum measures up to a second short. Allow that
+		// second, as the maximum check below does.
+		if minTTL := time.Duration(p.cfg.AgentMinTTLSecs) * time.Second; lifetime < minTTL-time.Second {
 			return nil, status.Errorf(codes.InvalidArgument, "agent token lifetime must be at least %d seconds", p.cfg.AgentMinTTLSecs)
 		}
 		if maxTTL := time.Duration(p.cfg.AgentMaxTTLSecs) * time.Second; maxTTL > 0 && lifetime > maxTTL+time.Second {
