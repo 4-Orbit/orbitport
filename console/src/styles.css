@@ -1060,6 +1060,24 @@ table.compact td {
   margin-top: 6px;
 }
 
+.explanation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.explanation-action {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.explanation-actions > p {
+  flex-basis: 100%;
+}
+
 /* ---------- simulator / tests / versions / agents ---------- */
 
 .sim-form {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { explainText, partsText, type ExplainedRequest } from "../src/explain.ts";
-import type { Explanation } from "../src/types.ts";
+import { explainText, grantActions, partsText, withRole, type ExplainedRequest } from "../src/explain.ts";
+import type { EntityJson, Explanation } from "../src/types.ts";
 
 const line = (e: Explanation, r: ExplainedRequest) => {
   const t = explainText(e, r);
@@ -132,4 +132,73 @@ test("rule ids are marked for chips, platform ones included", () => {
     t.headline.filter((p) => p.policy).map((p) => p.text),
     ["security-rotate-dev-key"],
   );
+});
+
+// ---- Grant this… ----
+
+const requests = (e: Explanation, r: ExplainedRequest) => grantActions(e, r).map((a) => a.request);
+
+test("closest: a rule for this agent first, then its role, then joining the missing role", () => {
+  const actions = grantActions(closest, dev("kms.RotateKey"));
+  assert.deepEqual(
+    actions.map((a) => a.request),
+    [
+      { kind: "newRule", rule: { effect: "permit", who: { kind: "agent", id: "developer-agent" }, can: ["kms.RotateKey"], on: { kind: "keys", ids: ["dev-key"] } } },
+      { kind: "newRule", rule: { effect: "permit", who: { kind: "role", id: "developer" }, can: ["kms.RotateKey"], on: { kind: "keys", ids: ["dev-key"] } } },
+      { kind: "addRole", agentId: "developer-agent", role: "security" },
+    ],
+  );
+  assert.equal(actions[0].label, "Grant this: let developer-agent rotate dev-key…");
+  assert.match(actions[2].hint ?? "", /everything else the security role can do/);
+});
+
+test("no rule: offer new rules but never joining a role", () => {
+  assert.deepEqual(
+    requests(noRule, dev("kms.Decrypt")).map((r) => r.kind),
+    ["newRule", "newRule"],
+  );
+});
+
+test("expired: extend the rule that lapsed", () => {
+  const [a] = grantActions(expired, dev("kms.Encrypt", "demo-key"));
+  assert.deepEqual(a.request, { kind: "editRule", policyId: "developer-encrypt-demo-key" });
+  assert.match(a.label, /^Extend developer-encrypt-demo-key/);
+});
+
+test("blocked: edit tenant forbids, never platform rules", () => {
+  const e: Explanation = {
+    decision: "DENY",
+    kind: "blocked",
+    determiningPolicies: ["no-prod-for-developers", "platform.tenant-fence"],
+    blockedBy: [
+      { policyId: "no-prod-for-developers", platform: false },
+      { policyId: "platform.tenant-fence", platform: true },
+    ],
+  };
+  assert.deepEqual(requests(e, dev("kms.Encrypt", "prod-key")), [{ kind: "editRule", policyId: "no-prod-for-developers" }]);
+});
+
+test("nothing to grant for the account, non-key resources, or engine problems", () => {
+  assert.deepEqual(grantActions({ ...noRule, agentRoles: [] }, { action: "kms.Encrypt", resource: "dev-key" }), []);
+  assert.deepEqual(grantActions(noRule, { agentId: "developer-agent", action: "kms_keystore.Get", resource: "x", resourceType: "KeyStoreKey" }), []);
+  for (const kind of ["errored", "noPolicy", "invalidRequest", "unknownAgent", "allowed"] as const) {
+    assert.deepEqual(grantActions({ decision: "DENY", kind, determiningPolicies: [] }, dev("kms.Encrypt")), [], kind);
+  }
+});
+
+test("withRole adds the membership, declaring the role and agent when missing", () => {
+  const base: EntityJson[] = [
+    { uid: { type: "Role", id: "developer" }, attrs: {}, parents: [] },
+    { uid: { type: "Agent", id: "developer-agent" }, attrs: {}, parents: [{ type: "Role", id: "developer" }] },
+  ];
+  const next = withRole(base, "developer-agent", "security");
+  assert.deepEqual(next.find((e) => e.uid.id === "developer-agent")?.parents, [
+    { type: "Role", id: "developer" },
+    { type: "Role", id: "security" },
+  ]);
+  assert.ok(next.some((e) => e.uid.type === "Role" && e.uid.id === "security"), "role declared");
+  assert.equal(withRole(next, "developer-agent", "security"), next, "no change when already a member");
+  const fresh = withRole(base, "new-agent", "developer");
+  assert.deepEqual(fresh.at(-1), { uid: { type: "Agent", id: "new-agent" }, attrs: {}, parents: [{ type: "Role", id: "developer" }] });
+  assert.equal(fresh.filter((e) => e.uid.type === "Role").length, 1, "existing role not duplicated");
 });

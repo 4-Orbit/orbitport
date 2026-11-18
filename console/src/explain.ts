@@ -6,8 +6,8 @@
  * module only turns that structure into sentences, so the console never
  * reasons about Cedar itself.
  */
-import { capability } from "./rules.ts";
-import type { Candidate, EntityRef, Explanation, Requirement } from "./types.ts";
+import { capability, type Rule } from "./rules.ts";
+import type { Candidate, EntityJson, EntityRef, Explanation, Requirement } from "./types.ts";
 
 /** One run of text; `policy` renders as a rule-id chip, `strong` in bold. */
 export interface Part {
@@ -30,6 +30,8 @@ export interface ExplainedRequest {
   action: string;
   /** The resource id, e.g. a key alias. */
   resource: string;
+  /** Resource type; default "Key". Only key requests can be granted by a rule form. */
+  resourceType?: string;
 }
 
 const strong = (text: string): Part => ({ text, strong: true });
@@ -182,3 +184,107 @@ function addOthers(details: Part[][], e: Explanation, from: number) {
 }
 
 export const partsText = (parts: Part[]) => parts.map((p) => p.text).join("");
+
+// ---------------------------------------------------------------------------
+// Grant this… : what the console can offer to fix a DENY
+// ---------------------------------------------------------------------------
+
+/**
+ * A change to the draft that would address a DENY. The console only ever
+ * edits the draft: nothing is enforced until it's saved and activated.
+ */
+export type GrantRequest =
+  /** Open the rule form pre-filled with this rule. */
+  | { kind: "newRule"; rule: Omit<Rule, "id"> }
+  /** Open an existing rule in the rule form. */
+  | { kind: "editRule"; policyId: string }
+  /** Add an agent to a role. */
+  | { kind: "addRole"; agentId: string; role: string };
+
+export interface GrantAction {
+  label: string;
+  /** A short caution shown with the button. */
+  hint?: string;
+  request: GrantRequest;
+}
+
+/** The narrowest new rule: this agent, this action, this key. */
+function agentRule(r: ExplainedRequest): Omit<Rule, "id"> {
+  return { effect: "permit", who: { kind: "agent", id: r.agentId! }, can: [r.action], on: { kind: "keys", ids: [r.resource] } };
+}
+
+/**
+ * The fixes to offer for an explanation, best first. A new rule for just
+ * this agent is the default because it grants the least; granting a role
+ * or adding the agent to a role also changes what other agents can do.
+ */
+export function grantActions(e: Explanation, r: ExplainedRequest): GrantAction[] {
+  const out: GrantAction[] = [];
+  const best = e.candidates?.[0];
+  // The rule form expresses key actions only, and account tokens are never
+  // denied for want of a rule.
+  const ruleable = !!r.agentId && (r.resourceType ?? "Key") === "Key" && !!capability(r.action);
+  const newRule = () => {
+    if (!ruleable) return;
+    out.push({ label: `Grant this: let ${r.agentId} ${capability(r.action)!.verb} ${r.resource}…`, request: { kind: "newRule", rule: agentRule(r) } });
+    for (const role of e.agentRoles ?? []) {
+      out.push({
+        label: `Grant it to the ${role} role instead…`,
+        hint: `every agent with the ${role} role gets it`,
+        request: { kind: "newRule", rule: { ...agentRule(r), who: { kind: "role", id: role } } },
+      });
+    }
+  };
+
+  switch (e.kind) {
+    case "blocked":
+      for (const b of e.blockedBy ?? []) {
+        if (!b.platform) out.push({ label: `Edit the blocking rule ${b.policyId}…`, request: { kind: "editRule", policyId: b.policyId } });
+      }
+      break;
+    case "expired":
+      out.push({ label: `Extend ${best!.policyId}…`, hint: "change or remove its end date", request: { kind: "editRule", policyId: best!.policyId } });
+      break;
+    case "notYet":
+      out.push({ label: `Edit ${best!.policyId}…`, request: { kind: "editRule", policyId: best!.policyId } });
+      break;
+    case "conditionFalse":
+      out.push({ label: `Edit ${best!.policyId}…`, request: { kind: "editRule", policyId: best!.policyId } });
+      newRule();
+      break;
+    case "closest": {
+      newRule();
+      // When only a role is missing, joining that role is the other fix.
+      const only = best!.missing.length === 1 ? best!.missing[0] : null;
+      const roles = only?.part === "principal" ? requiredRoles(only) : [];
+      if (r.agentId && roles.length === 1) {
+        out.push({
+          label: `Add ${r.agentId} to the ${roles[0]} role…`,
+          hint: `it also gets everything else the ${roles[0]} role can do`,
+          request: { kind: "addRole", agentId: r.agentId, role: roles[0] },
+        });
+      }
+      break;
+    }
+    case "noRule":
+      newRule();
+      break;
+  }
+  return out;
+}
+
+/**
+ * The entity list with agentId in role, declaring the role (and the agent)
+ * if the draft doesn't have them yet. Returns the same list when nothing
+ * changes.
+ */
+export function withRole(entities: EntityJson[], agentId: string, role: string): EntityJson[] {
+  const isRole = (e: EntityJson) => e.uid.type === "Role" && e.uid.id === role;
+  const isAgent = (e: EntityJson) => e.uid.type === "Agent" && e.uid.id === agentId;
+  const agent = entities.find(isAgent);
+  if (agent?.parents.some((p) => p.type === "Role" && p.id === role)) return entities;
+  let next = entities;
+  if (!next.some(isRole)) next = [...next, { uid: { type: "Role", id: role }, attrs: {}, parents: [] }];
+  if (!agent) return [...next, { uid: { type: "Agent", id: agentId }, attrs: {}, parents: [{ type: "Role", id: role }] }];
+  return next.map((e) => (isAgent(e) ? { ...e, parents: [...e.parents, { type: "Role", id: role }] } : e));
+}
