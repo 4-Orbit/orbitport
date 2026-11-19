@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CAPABILITIES, suggestId, toCedar, validRuleId, type Effect, type On, type Rule, type Who } from "../rules.ts";
+import { CAPABILITIES, REPOSITORY_ID_RE, suggestId, toCedar, validRuleId, type Effect, type On, type Rule, type Who } from "../rules.ts";
 import type { KeyInfo } from "../types.ts";
 import { Sentence } from "./RuleCard.tsx";
 import { toEpoch } from "./SourcePicker.tsx";
@@ -12,6 +12,8 @@ interface Props {
   roles: string[];
   agents: string[];
   keys: KeyInfo[];
+  repositories?: string[];
+  repositoryError?: string | null;
   /** More keys exist than were loaded; the user can still type any alias. */
   moreKeys?: boolean;
   /** Key ids named anywhere in the policies (may not exist in the KMS yet). */
@@ -34,7 +36,7 @@ function visibleKeys(all: string[], selected: string[], search: string): { shown
 const fromEpochLocal = (s: number) => new Date(s * 1000).toISOString().slice(0, 19);
 
 /** Plain-language form for one rule. Cedar is generated from it. */
-export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = false, referencedKeys, takenIds, onSave, onCancel }: Props) {
+export function RuleBuilder({ initial, prefill, roles, agents, keys, repositories = [], repositoryError = null, moreKeys = false, referencedKeys, takenIds, onSave, onCancel }: Props) {
   const seed = initial ?? prefill ?? null;
   const [effect, setEffect] = useState<Effect>(seed?.effect ?? "permit");
   const [who, setWho] = useState<Who>(seed?.who ?? (roles[0] ? { kind: "role", id: roles[0] } : { kind: "anyAgent" }));
@@ -49,6 +51,10 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
   const [showCedar, setShowCedar] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [keySearch, setKeySearch] = useState("");
+  const [newRepository, setNewRepository] = useState("");
+  const github = on.kind === "repositories";
+  const capabilities = CAPABILITIES.filter((c) => (c.resourceType === "Repository") === github);
+  const repositoryIds = [...new Set([...repositories, ...(on.kind === "repositories" ? on.ids : [])])].sort();
 
   const keyIds = useMemo(() => [...new Set([...keys.map((k) => k.alias), ...referencedKeys, ...(on.kind === "keys" ? on.ids : [])])].sort(), [keys, referencedKeys, on]);
   const tagOptions = useMemo(() => {
@@ -65,14 +71,16 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
 
   const errors: string[] = [];
   if ((who.kind === "role" || who.kind === "agent") && !who.id) errors.push(`Choose ${who.kind === "role" ? "a role" : "an agent"}.`);
-  if (!everything && can.length === 0) errors.push("Choose at least one action, or tick “Everything”.");
+  if (!everything && can.length === 0) errors.push(github ? "Choose Create issues." : "Choose at least one action, or tick “Everything”.");
   if (on.kind === "keys" && on.ids.length === 0) errors.push("Choose at least one key, or pick “any key”.");
+  if (on.kind === "repositories" && (on.ids.length === 0 || on.ids.some((id) => !REPOSITORY_ID_RE.test(id)))) errors.push("Choose at least one repository in owner/name format.");
+  if (github && (everything || can.some((id) => !capabilities.some((c) => c.id === id)))) errors.push("Choose a supported GitHub action.");
   if (on.kind === "tag" && (!on.key || !on.value)) errors.push("Enter both the tag name and value.");
   if (expires && untilEpoch === undefined) errors.push("Pick an expiry date and time.");
   if (!validRuleId(id)) errors.push("Rule name: 1–128 of letters, digits, . _ : - (not starting with “platform.”).");
   if (otherIds.has(id)) errors.push("Another rule already uses this name.");
   const warnings: string[] = [];
-  if (effect === "forbid" && who.kind === "anyone") warnings.push("This also blocks account tokens, including the operator's. You could lock yourself out of these keys.");
+  if (effect === "forbid" && who.kind === "anyone") warnings.push("This also blocks account tokens, including the operator's. You could lock yourself out of these resources.");
   if (effect === "permit" && who.kind === "anyone" && everything && on.kind === "anyKey") warnings.push("This lets every agent do everything with every key.");
   if (who.kind === "role" && who.id && !roles.includes(who.id)) warnings.push(`Role “${who.id}” isn't declared yet; add it under Agents & roles.`);
   if (who.kind === "agent" && who.id && !agents.includes(who.id)) warnings.push(`Agent “${who.id}” isn't registered yet; add it under Agents & roles.`);
@@ -121,6 +129,20 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
         </fieldset>
 
         <fieldset>
+          <legend>Service</legend>
+          <select aria-label="Service" value={github ? "github" : "kms"} onChange={(e) => {
+            const isGithub = e.target.value === "github";
+            setEverything(false);
+            setCan([isGithub ? "github.issue.Create" : "kms.Encrypt"]);
+            setOn({ kind: isGithub ? "repositories" : "keys", ids: [] });
+            setShowCedar(false);
+          }}>
+            <option value="kms">Key management</option>
+            <option value="github">GitHub</option>
+          </select>
+        </fieldset>
+
+        <fieldset>
           <legend>Who</legend>
           <select
             aria-label="Who"
@@ -159,22 +181,22 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
 
         <fieldset className="span-2">
           <legend>Can</legend>
-          <label className="check">
+          {!github && <label className="check">
             <input type="checkbox" checked={everything} onChange={(e) => setEverything(e.target.checked)} />
             <span>
               <strong>Everything</strong> <span className="muted">(every key action, now and in future)</span>
             </span>
-          </label>
+          </label>}
           {!everything && (
             <div className="caps">
-              {CAPABILITIES.filter((c) => !c.group).map((g) => (
+              {capabilities.filter((c) => !c.group).map((g) => (
                 <div key={g.id} className="cap-group">
                   <label className="check">
                     <input type="checkbox" checked={groupChecked(g.id)} onChange={() => toggleCap(g.id)} />
                     <strong>{g.label}</strong>
                   </label>
                   <div className="cap-children">
-                    {CAPABILITIES.filter((c) => c.group === g.id && !c.label.includes("single action")).map((c) => (
+                    {capabilities.filter((c) => c.group === g.id && !c.label.includes("single action")).map((c) => (
                       <label key={c.id} className="check">
                         <input type="checkbox" disabled={groupChecked(g.id)} checked={groupChecked(g.id) || can.includes(c.id)} onChange={() => toggleCap(c.id)} />
                         <span>{c.label}</span>
@@ -185,11 +207,32 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
               ))}
             </div>
           )}
+          {github && <p className="muted small">Create issues is supported. Editing and closing issues are not available yet.</p>}
           {everything && <p className="muted small">Includes rotating and creating keys.</p>}
         </fieldset>
 
         <fieldset className="span-2">
           <legend>On</legend>
+          {on.kind === "repositories" ? (
+            <div className="key-picks">
+              <p className="muted small">Choose the repositories this rule covers. A rule does not add repositories to the GitHub App installation.</p>
+              {repositoryError && <p className="builder-warning">Configured repositories could not be loaded: {repositoryError}. You can still enter a repository for your draft.</p>}
+              {repositoryIds.map((repo) => (
+                <label key={repo} className="check">
+                  <input type="checkbox" checked={on.ids.includes(repo)} onChange={() => setOn({ kind: "repositories", ids: on.ids.includes(repo) ? on.ids.filter((id) => id !== repo) : [...on.ids, repo] })} />
+                  <span className="mono">{repo}</span>
+                  {!repositories.includes(repo) && <span className="muted small">not configured for issue creation</span>}
+                </label>
+              ))}
+              <div className="row">
+                <input aria-label="Another repository" placeholder="owner/repository" value={newRepository} onChange={(e) => setNewRepository(e.target.value.trim())} />
+                <button type="button" className="button small" disabled={!REPOSITORY_ID_RE.test(newRepository) || on.ids.includes(newRepository)} onClick={() => {
+                  setOn({ kind: "repositories", ids: [...on.ids, newRepository] });
+                  setNewRepository("");
+                }}>Add repository</button>
+              </div>
+            </div>
+          ) : <>
           <div className="segmented" role="group" aria-label="Which keys">
             <button type="button" aria-pressed={on.kind === "keys"} onClick={() => setOn({ kind: "keys", ids: on.kind === "keys" ? on.ids : [] })}>
               Specific keys
@@ -256,6 +299,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
             </div>
           )}
           {on.kind === "anyKey" && <p className="muted small">Every key in this tenant, including keys created later.</p>}
+          </>}
         </fieldset>
 
         <fieldset>
@@ -265,7 +309,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
             <span>Expires</span>
           </label>
           {expires && <input type="datetime-local" aria-label="Expires at (UTC)" step={1} value={until} onChange={(e) => setUntil(e.target.value)} />}
-          {expires && <p className="muted small">UTC. Checked against the KMS clock on every request.</p>}
+          {expires && <p className="muted small">UTC. Checked against the service clock on every request.</p>}
         </fieldset>
 
         <fieldset>
@@ -303,7 +347,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = 
         <button type="button" className="link-button" onClick={() => setShowCedar((v) => !v)}>
           {showCedar ? "Hide Cedar" : "Show the Cedar this writes"}
         </button>
-        {showCedar && <pre className="cedar-preview">{toCedar(rule)}</pre>}
+        {showCedar && errors.length === 0 && <pre className="cedar-preview">{toCedar(rule)}</pre>}
         <div className="row">
           <button type="submit" className="button primary" disabled={errors.length > 0}>
             {initial ? "Update rule" : "Add rule"}

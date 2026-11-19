@@ -1,5 +1,194 @@
 [
   {
+    "name": "github-developer-create-issues",
+    "rule": {
+      "id": "github-developer-create-issues",
+      "effect": "permit",
+      "who": {
+        "kind": "role",
+        "id": "developer"
+      },
+      "can": [
+        "github.issue.Create"
+      ],
+      "on": {
+        "kind": "repositories",
+        "ids": [
+          "4-Orbit/orbitport-issue-test"
+        ]
+      }
+    },
+    "cedar": "@id(\"github-developer-create-issues\")\npermit (\n  principal in Role::\"developer\",\n  action == Action::\"github.issue.Create\",\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
+    "json": {
+      "annotations": {
+        "id": "github-developer-create-issues"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "github.issue.Create"
+        }
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Repository",
+          "id": "4-Orbit/orbitport-issue-test"
+        }
+      }
+    }
+  },
+  {
+    "name": "github-agent-create-until",
+    "rule": {
+      "id": "github-agent-create-until",
+      "effect": "permit",
+      "who": {
+        "kind": "agent",
+        "id": "developer-agent"
+      },
+      "can": [
+        "github.issue.Create"
+      ],
+      "on": {
+        "kind": "repositories",
+        "ids": [
+          "4-Orbit/orbitport-issue-test",
+          "4-Orbit/another-test"
+        ]
+      },
+      "until": 1800000000
+    },
+    "cedar": "@id(\"github-agent-create-until\")\npermit (\n  principal == Agent::\"developer-agent\",\n  action == Action::\"github.issue.Create\",\n  resource\n)\nwhen { resource in [Repository::\"4-Orbit/orbitport-issue-test\", Repository::\"4-Orbit/another-test\"] \u0026\u0026 context.currentTime \u003c 1800000000 };",
+    "json": {
+      "annotations": {
+        "id": "github-agent-create-until"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "==",
+        "entity": {
+          "type": "Agent",
+          "id": "developer-agent"
+        }
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "github.issue.Create"
+        }
+      },
+      "resource": {
+        "op": "All"
+      },
+      "conditions": [
+        {
+          "kind": "when",
+          "body": {
+            "\u0026\u0026": {
+              "left": {
+                "in": {
+                  "left": {
+                    "Var": "resource"
+                  },
+                  "right": {
+                    "Set": [
+                      {
+                        "Value": {
+                          "__entity": {
+                            "type": "Repository",
+                            "id": "4-Orbit/orbitport-issue-test"
+                          }
+                        }
+                      },
+                      {
+                        "Value": {
+                          "__entity": {
+                            "type": "Repository",
+                            "id": "4-Orbit/another-test"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "right": {
+                "\u003c": {
+                  "left": {
+                    ".": {
+                      "left": {
+                        "Var": "context"
+                      },
+                      "attr": "currentTime"
+                    }
+                  },
+                  "right": {
+                    "Value": 1800000000
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "github-block-agent-issues",
+    "rule": {
+      "id": "github-block-agent-issues",
+      "effect": "forbid",
+      "who": {
+        "kind": "anyAgent"
+      },
+      "can": [
+        "github.issue.Create"
+      ],
+      "on": {
+        "kind": "repositories",
+        "ids": [
+          "4-Orbit/private-repo"
+        ]
+      }
+    },
+    "cedar": "@id(\"github-block-agent-issues\")\nforbid (\n  principal is Agent,\n  action == Action::\"github.issue.Create\",\n  resource == Repository::\"4-Orbit/private-repo\"\n);",
+    "json": {
+      "annotations": {
+        "id": "github-block-agent-issues"
+      },
+      "effect": "forbid",
+      "principal": {
+        "op": "is",
+        "entity_type": "Agent"
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "github.issue.Create"
+        }
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Repository",
+          "id": "4-Orbit/private-repo"
+        }
+      }
+    }
+  },
+  {
     "name": "developer-encrypt-dev-key",
     "rule": {
       "id": "developer-encrypt-dev-key",
@@ -441,6 +630,56 @@
         "entity": {
           "type": "Key",
           "id": "prod-key"
+        }
+      }
+    }
+  },
+  {
+    "name": "github-unrestricted-resources",
+    "rule": null,
+    "cedar": "@id(\"github-unrestricted-resources\") permit (principal is Agent, action == Action::\"github.issue.Create\", resource);",
+    "json": {
+      "annotations": {
+        "id": "github-unrestricted-resources"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "is",
+        "entity_type": "Agent"
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "github.issue.Create"
+        }
+      },
+      "resource": {
+        "op": "All"
+      }
+    }
+  },
+  {
+    "name": "github-every-action",
+    "rule": null,
+    "cedar": "@id(\"github-every-action\") forbid (principal is Agent, action, resource == Repository::\"4-Orbit/private-repo\");",
+    "json": {
+      "annotations": {
+        "id": "github-every-action"
+      },
+      "effect": "forbid",
+      "principal": {
+        "op": "is",
+        "entity_type": "Agent"
+      },
+      "action": {
+        "op": "All"
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Repository",
+          "id": "4-Orbit/private-repo"
         }
       }
     }

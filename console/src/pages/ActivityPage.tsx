@@ -308,7 +308,7 @@ function DenyExplanation({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [agentId, action, type, id, ev.policyVersion, platformOnly, at, tagsKey],
   );
-  const request = { agentId, action, resource: id };
+  const request = { agentId, action, resource: id, resourceType: type };
   return (
     <div className="detail-section">
       {platformOnly ? (

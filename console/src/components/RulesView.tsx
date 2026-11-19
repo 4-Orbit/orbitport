@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { api } from "../api.ts";
 import { appendPolicy, fromPolicyJson, removeSpan, replaceSpan, toCedar, type Rule } from "../rules.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { KeyInfo, ValidateResult } from "../types.ts";
@@ -29,6 +30,13 @@ type Editing = { kind: "new"; prefill?: Omit<Rule, "id"> } | { kind: "edit"; ind
 /** The plain-language view of the draft's policies, with the rule builder. */
 export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged, grant = null, onGrantHandled }: Props) {
   const draft = useDraft();
+  const [repositories, setRepositories] = useState<string[]>([]);
+  const [repositoryError, setRepositoryError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.githubRepositories().then((r) => { if (!cancelled) setRepositories(r.repositories); }).catch((e: Error) => { if (!cancelled) setRepositoryError(e.message); });
+    return () => { cancelled = true; };
+  }, []);
   // Edits use the validated spans, so they wait until validation catches up.
   const stale = validatedText !== draft.policies;
   const [editing, setEditing] = useState<Editing>(null);
@@ -112,7 +120,7 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
         </button>
         <input
           aria-label="Filter rules"
-          placeholder="filter by agent, role, key…"
+          placeholder="filter by agent, role, key or repository…"
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
@@ -125,7 +133,7 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
       </div>
 
       {editing?.kind === "new" && (
-        <RuleBuilder key={JSON.stringify(editing.prefill ?? null)} initial={null} prefill={editing.prefill} roles={roles} agents={agents} keys={keys} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
+        <RuleBuilder key={JSON.stringify(editing.prefill ?? null)} initial={null} prefill={editing.prefill} roles={roles} agents={agents} keys={keys} repositories={repositories} repositoryError={repositoryError} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
       )}
 
       {cards.length === 0 && editing === null && (
@@ -148,6 +156,8 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
               roles={roles}
               agents={agents}
               keys={keys}
+              repositories={repositories}
+              repositoryError={repositoryError}
               moreKeys={moreKeys}
               referencedKeys={validation?.summary?.referencedKeys ?? []}
               takenIds={takenIds}

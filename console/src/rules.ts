@@ -2,7 +2,7 @@
  * The plain-language rule model behind the policy builder.
  *
  * A Rule is a small, closed shape: who may (or may never) do what, on which
- * keys, until when. Cedar stays the source of truth:
+ * keys or repositories, until when. Cedar stays the source of truth:
  *
  *   - fromPolicyJson() converts the engine's Cedar JSON for one policy into a
  *     Rule, or returns null when the policy uses anything the shape can't
@@ -24,6 +24,7 @@ export type Who =
 export type On =
   | { kind: "anyKey" }
   | { kind: "keys"; ids: string[] }
+  | { kind: "repositories"; ids: string[] }
   | { kind: "tag"; key: string; value: string };
 
 export interface Rule {
@@ -45,10 +46,12 @@ export interface Capability {
   /** Preposition before the keys when this is the only capability, e.g. "with". */
   prep: string;
   group?: string;
+  resourceType?: "Repository";
 }
 
 /** What the builder offers, in display order. Groups first, then single actions. */
 export const CAPABILITIES: Capability[] = [
+  { id: "github.issue.Create", label: "Create issues", verb: "create issues", prep: "in", resourceType: "Repository" },
   { id: "use", label: "Use keys (encrypt, decrypt, sign, data keys)", verb: "use", prep: "" },
   { id: "kms.Encrypt", label: "Encrypt", verb: "encrypt", prep: "with", group: "use" },
   { id: "kms.Decrypt", label: "Decrypt", verb: "decrypt", prep: "with", group: "use" },
@@ -67,6 +70,8 @@ export const CAPABILITIES: Capability[] = [
 
 const CAP_BY_ID = new Map(CAPABILITIES.map((c) => [c.id, c]));
 const GROUPS = new Set(["use", "rotate", "read", "admin"]);
+
+export const REPOSITORY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
 
 export const capability = (id: string): Capability | undefined => CAP_BY_ID.get(id);
 
@@ -122,6 +127,7 @@ interface Conditions {
   tagHas?: string;
   tagEq?: { key: string; value: string };
   keys?: string[];
+  repositories?: string[];
 }
 
 function parseTerm(term: unknown, into: Conditions): boolean {
@@ -160,15 +166,19 @@ function parseTerm(term: unknown, into: Conditions): boolean {
       return false;
     }
     case "in": {
-      if (!isVar(t.left, "resource") || !isObj(t.right) || !Array.isArray(t.right.Set) || into.keys) return false;
+      if (!isVar(t.left, "resource") || !isObj(t.right) || !Array.isArray(t.right.Set) || into.keys || into.repositories) return false;
       const ids: string[] = [];
+      let resourceType: string | undefined;
       for (const item of t.right.Set as unknown[]) {
         const ent = isObj(valueOf(item)) ? (valueOf(item) as Json).__entity : undefined;
-        if (!isEntity(ent) || ent.type !== "Key") return false;
+        if (!isEntity(ent) || !["Key", "Repository"].includes(ent.type)) return false;
+        if (resourceType && resourceType !== ent.type) return false;
+        resourceType = ent.type;
         ids.push(ent.id);
       }
       if (ids.length < 2) return false;
-      into.keys = ids;
+      if (resourceType === "Repository") into.repositories = ids;
+      else into.keys = ids;
       return true;
     }
   }
@@ -190,8 +200,10 @@ export function fromPolicyJson(policy: unknown): Rule | null {
 
   const r = policy.resource;
   let scopeKey: string | null = null;
+  let scopeRepository: string | null = null;
   if (!isObj(r)) return null;
   if (r.op === "==" && isEntity(r.entity) && r.entity.type === "Key") scopeKey = r.entity.id;
+  else if (r.op === "==" && isEntity(r.entity) && r.entity.type === "Repository") scopeRepository = r.entity.id;
   else if (r.op !== "All") return null;
 
   const cond: Conditions = {};
@@ -205,13 +217,23 @@ export function fromPolicyJson(policy: unknown): Rule | null {
   if ((cond.tagHas === undefined) !== (cond.tagEq === undefined)) return null;
   if (cond.tagHas !== undefined && cond.tagHas !== cond.tagEq!.key) return null;
 
-  const restrictions = [scopeKey !== null, cond.keys !== undefined, cond.tagEq !== undefined].filter(Boolean).length;
+  const restrictions = [scopeKey !== null, scopeRepository !== null, cond.keys !== undefined, cond.repositories !== undefined, cond.tagEq !== undefined].filter(Boolean).length;
   if (restrictions > 1) return null;
 
   let on: On = { kind: "anyKey" };
-  if (scopeKey !== null) on = { kind: "keys", ids: [scopeKey] };
+  if (scopeRepository !== null) on = { kind: "repositories", ids: [scopeRepository] };
+  else if (cond.repositories) on = { kind: "repositories", ids: cond.repositories };
+  else if (scopeKey !== null) on = { kind: "keys", ids: [scopeKey] };
   else if (cond.keys) on = { kind: "keys", ids: cond.keys };
   else if (cond.tagEq) on = { kind: "tag", key: cond.tagEq.key, value: cond.tagEq.value };
+
+  // Mixed service actions and unrestricted GitHub resources stay custom rather
+  // than losing their scope when edited in the form.
+  const github = can.some((id) => capability(id)?.resourceType === "Repository");
+  if (on.kind === "repositories") {
+    if (!can.length || can.some((id) => capability(id)?.resourceType !== "Repository")) return null;
+    if (on.ids.some((id) => !REPOSITORY_ID_RE.test(id))) return null;
+  } else if (github) return null;
 
   return { id: annotations.id, effect, who, can, on, ...(cond.until !== undefined && { until: cond.until }) };
 }
@@ -224,6 +246,9 @@ const str = (s: string) => JSON.stringify(s);
 const ent = (type: string, id: string) => `${type}::${str(id)}`;
 
 export function toCedar(rule: Rule): string {
+  if (rule.on.kind !== "repositories" && rule.can.some((id) => capability(id)?.resourceType === "Repository")) {
+    throw new Error("Choose a repository for the GitHub action");
+  }
   const principal =
     rule.who.kind === "anyone"
       ? "principal"
@@ -243,7 +268,13 @@ export function toCedar(rule: Rule): string {
 
   let resource = "resource";
   const conds: string[] = [];
-  if (rule.on.kind === "keys" && rule.on.ids.length === 1) resource = `resource == ${ent("Key", rule.on.ids[0])}`;
+  if (rule.on.kind === "repositories") {
+    if (!rule.on.ids.length || rule.on.ids.some((id) => !REPOSITORY_ID_RE.test(id)) || !rule.can.length || rule.can.some((id) => capability(id)?.resourceType !== "Repository")) {
+      throw new Error("Choose a GitHub action and at least one valid repository");
+    }
+    if (rule.on.ids.length === 1) resource = `resource == ${ent("Repository", rule.on.ids[0])}`;
+    else conds.push(`resource in [${rule.on.ids.map((id) => ent("Repository", id)).join(", ")}]`);
+  } else if (rule.on.kind === "keys" && rule.on.ids.length === 1) resource = `resource == ${ent("Key", rule.on.ids[0])}`;
   else if (rule.on.kind === "keys" && rule.on.ids.length > 1) conds.push(`resource in [${rule.on.ids.map((id) => ent("Key", id)).join(", ")}]`);
   else if (rule.on.kind === "tag") conds.push(`resource.hasTag(${str(rule.on.key)}) && resource.getTag(${str(rule.on.key)}) == ${str(rule.on.value)}`);
   if (rule.until !== undefined) conds.push(`context.currentTime < ${Math.floor(rule.until)}`);
@@ -288,7 +319,7 @@ function whoParts(who: Who): Sentence["parts"] {
 function onParts(on: On): Sentence["parts"] {
   if (on.kind === "anyKey") return [{ text: "any key" }];
   if (on.kind === "tag") return [{ text: "keys tagged " }, { text: `${on.key || "…"} = ${on.value || "…"}`, strong: true }];
-  return on.ids.length ? listParts(on.ids) : [{ text: "(choose keys)" }];
+  return on.ids.length ? listParts(on.ids) : [{ text: on.kind === "repositories" ? "(choose repositories)" : "(choose keys)" }];
 }
 
 /** "Agents with the developer role can encrypt with dev-key until Jan 15, 2027." */
@@ -334,7 +365,7 @@ export const validRuleId = (id: string) => ID_RE.test(id) && !id.startsWith("pla
 export function suggestId(rule: Omit<Rule, "id">, taken: Set<string>): string {
   const who = rule.who.kind === "role" || rule.who.kind === "agent" ? rule.who.id : rule.who.kind === "anyAgent" ? "agents" : "anyone";
   const what = rule.can.length === 0 ? "all" : rule.can.length === 1 ? rule.can[0].replace(/^kms\./, "").toLowerCase() : "multi";
-  const on = rule.on.kind === "anyKey" ? "any-key" : rule.on.kind === "tag" ? `${rule.on.key}-${rule.on.value}` : rule.on.ids.length === 1 ? rule.on.ids[0] : "keys";
+  const on = rule.on.kind === "anyKey" ? "any-key" : rule.on.kind === "tag" ? `${rule.on.key}-${rule.on.value}` : rule.on.ids.length === 1 ? rule.on.ids[0] : rule.on.kind === "repositories" ? "repositories" : "keys";
   const base =
     [rule.effect === "forbid" ? "deny" : "", who, what, on]
       .filter(Boolean)

@@ -70,3 +70,20 @@ test("text edits: replace, remove and append keep the rest intact", () => {
   assert.equal(appendPolicy("", "P;"), "P;\n");
   assert.equal(appendPolicy("A;\n\n\n", "P;"), "A;\n\nP;\n");
 });
+
+test("GitHub rules name repositories and reject broad or incompatible scopes", () => {
+  const rule: Rule = { id: "developer-create-issues", effect: "permit", who: { kind: "role", id: "developer" }, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["4-Orbit/orbitport-issue-test"] } };
+  assert.equal(sentenceText(describe(rule)), "Agents with the developer role can create issues in 4-Orbit/orbitport-issue-test.");
+  assert.match(toCedar(rule), /resource == Repository::"4-Orbit\/orbitport-issue-test"/);
+  for (const invalid of [
+    { ...rule, on: { kind: "repositories" as const, ids: [] } },
+    { ...rule, on: { kind: "repositories" as const, ids: ["owner/../repo"] } },
+    { ...rule, can: [] },
+    { ...rule, can: ["kms.Encrypt"] },
+    { ...rule, can: ["github.issue.Close"] },
+  ]) assert.throws(() => toCedar(invalid), /GitHub action/);
+  const fixture = fixtures.find((f) => f.name === "github-developer-create-issues")!;
+  const unsupported = structuredClone(fixture.json) as { action: unknown };
+  unsupported.action = { op: "==", entity: { type: "Action", id: "github.issue.Close" } };
+  assert.equal(fromPolicyJson(unsupported), null, "unsupported actions stay custom");
+});
