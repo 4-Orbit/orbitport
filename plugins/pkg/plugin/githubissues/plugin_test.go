@@ -33,7 +33,9 @@ func (p *policyStub) RecordAudit(_ context.Context, r *proto.RecordAuditRequest,
 	}
 	for _, raw := range r.EventsJson {
 		var ev authz.AuditEvent
-		json.Unmarshal([]byte(raw), &ev)
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			return nil, err
+		}
 		p.events = append(p.events, ev)
 	}
 	return &proto.RecordAuditResponse{Accepted: uint32(len(r.EventsJson))}, nil
@@ -83,7 +85,9 @@ func TestEnforcementAndAuditPrivacy(t *testing.T) {
 				t.Fatal(err)
 			}
 			var result Result
-			json.Unmarshal([]byte(out.ResultJson), &result)
+			if err := json.Unmarshal([]byte(out.ResultJson), &result); err != nil {
+				t.Fatal(err)
+			}
 			if tc.allow {
 				if result.Decision != authz.Allow || result.IssueNumber != 42 || provider.calls != 1 || len(policy.events) != 2 {
 					t.Fatalf("bad allow: %+v", result)

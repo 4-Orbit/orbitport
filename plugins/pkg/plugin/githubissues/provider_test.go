@@ -28,7 +28,9 @@ func TestRealProviderScopesAndFixedEndpoints(t *testing.T) {
 			t.Fatal("wrong target")
 		}
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
 		payload := `{"number":42,"html_url":"https://evil.invalid/secret"}`
 		if calls == 1 {
 			if r.URL.Path != "/app/installations/456/access_tokens" {

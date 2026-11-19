@@ -54,7 +54,7 @@ func (p *realProvider) Create(ctx context.Context, repo, title, body string) (in
 		Issuer: p.appID, IssuedAt: jwt.NewNumericDate(now.Add(-60 * time.Second)), ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
 	}).SignedString(p.key)
 	if err != nil {
-		return 0, fmt.Errorf("App signing failed")
+		return 0, fmt.Errorf("app signing failed")
 	}
 	name := repo[len(ownerOf(repo))+1:]
 	var issued struct {
@@ -104,7 +104,7 @@ func (p *realProvider) post(ctx context.Context, path, token string, body, into 
 	if err != nil {
 		return fmt.Errorf("GitHub request failed; outcome may be unknown")
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusCreated {
 		return fmt.Errorf("GitHub request refused")
 	}
