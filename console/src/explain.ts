@@ -6,7 +6,7 @@
  * module only turns that structure into sentences, so the console never
  * reasons about Cedar itself.
  */
-import { capability, type Rule } from "./rules.ts";
+import { REPOSITORY_ID_RE, capability, type Rule } from "./rules.ts";
 import type { Candidate, EntityJson, EntityRef, Explanation, Requirement } from "./types.ts";
 
 /** One run of text; `policy` renders as a rule-id chip, `strong` in bold. */
@@ -30,7 +30,7 @@ export interface ExplainedRequest {
   action: string;
   /** The resource id, e.g. a key alias. */
   resource: string;
-  /** Resource type; default "Key". Only key requests can be granted by a rule form. */
+  /** Resource type; default "Key". Key and Repository requests can be granted by a rule form. */
   resourceType?: string;
 }
 
@@ -208,9 +208,9 @@ export interface GrantAction {
   request: GrantRequest;
 }
 
-/** The narrowest new rule: this agent, this action, this key. */
+/** The narrowest new rule: this agent, this action, this resource. */
 function agentRule(r: ExplainedRequest): Omit<Rule, "id"> {
-  return { effect: "permit", who: { kind: "agent", id: r.agentId! }, can: [r.action], on: { kind: "keys", ids: [r.resource] } };
+  return { effect: "permit", who: { kind: "agent", id: r.agentId! }, can: [r.action], on: { kind: capability(r.action)?.resourceType === "Repository" ? "repositories" : "keys", ids: [r.resource] } };
 }
 
 /**
@@ -221,9 +221,10 @@ function agentRule(r: ExplainedRequest): Omit<Rule, "id"> {
 export function grantActions(e: Explanation, r: ExplainedRequest): GrantAction[] {
   const out: GrantAction[] = [];
   const best = e.candidates?.[0];
-  // The rule form expresses key actions only, and account tokens are never
-  // denied for want of a rule.
-  const ruleable = !!r.agentId && (r.resourceType ?? "Key") === "Key" && !!capability(r.action);
+  // Only supported service/action/resource combinations can enter the form.
+  const cap = capability(r.action);
+  const resourceType = cap?.resourceType ?? "Key";
+  const ruleable = !!r.agentId && !!cap && (r.resourceType ?? resourceType) === resourceType && (resourceType !== "Repository" || REPOSITORY_ID_RE.test(r.resource));
   const newRule = () => {
     if (!ruleable) return;
     out.push({ label: `Grant this: let ${r.agentId} ${capability(r.action)!.verb} ${r.resource}…`, request: { kind: "newRule", rule: agentRule(r) } });

@@ -85,23 +85,27 @@ are missing or invalid. The GitHub page should now say **LIVE**.
 
 ## 3. Grant the developer access to the real repository
 
-In **Policies**, append this to the Cedar source, using the configured repository:
+In **Policies**, choose **Plain language**, then **Add rule**:
 
-```cedar
-@id("developer-create-test-issue")
-permit (
-  principal in Role::"developer",
-  action == Action::"github.issue.Create",
-  resource == Repository::"4-Orbit/orbitport-issue-test"
-);
-```
+1. Choose **Allows**, service **GitHub**, and **Agents with a role** → `developer`.
+2. Leave **Create issues** selected.
+3. Select the configured repository under **On**. You can enter another
+   `owner/repository` to draft a policy, but this does not configure the App or
+   make an unconfigured repository executable.
+4. Optionally set an expiry. Give the rule a unique name, then **Add rule**.
+5. Save a new version. Add tests for developer ALLOW, security DENY and a different
+   repository DENY; run them and activate the version.
 
-Save a new version. Add tests for developer ALLOW, security DENY and a different
-repository DENY; run them and activate the version. Existing policies are never
-automatically broadened when the GitHub repository configuration changes.
+The preview reads “Agents with the developer role can create issues in
+4-Orbit/orbitport-issue-test.” Existing repository-specific GitHub rules also
+open in this form. Advanced rules that cannot be represented exactly remain
+editable in **Cedar code**. Create issues is the only supported GitHub action;
+close/edit operations and autonomous agents are separate work.
 
-The plain-language rule builder currently supports KMS rules; use **Cedar code**
-for this GitHub rule. Save and activate it before testing.
+A denied GitHub policy check can also offer **Grant this…**, which prepares a
+rule for that agent, action and repository in your draft. It never activates the
+rule automatically. Changing the GitHub repository configuration never broadens
+existing policies.
 
 In **GitHub**, check the active policy first. A click on **Create GitHub issue**
 then performs one real issue creation. Success returns the issue number and a

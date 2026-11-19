@@ -202,3 +202,12 @@ test("withRole adds the membership, declaring the role and agent when missing", 
   assert.deepEqual(fresh.at(-1), { uid: { type: "Agent", id: "new-agent" }, attrs: {}, parents: [{ type: "Role", id: "developer" }] });
   assert.equal(fresh.filter((e) => e.uid.type === "Role").length, 1, "existing role not duplicated");
 });
+
+test("GitHub denial grants only the requested repository and action", () => {
+  const request = { agentId: "developer-agent", action: "github.issue.Create", resource: "4-Orbit/orbitport-issue-test", resourceType: "Repository" };
+  const actions = grantActions({ ...noRule, agentRoles: [] }, request);
+  assert.equal(actions.length, 1);
+  assert.deepEqual(actions[0].request, { kind: "newRule", rule: { effect: "permit", who: { kind: "agent", id: "developer-agent" }, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["4-Orbit/orbitport-issue-test"] } } });
+  assert.deepEqual(grantActions(noRule, { ...request, resourceType: "Key" }), []);
+  assert.deepEqual(grantActions(noRule, { ...request, action: "github.issue.Close" }), []);
+});

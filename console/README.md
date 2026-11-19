@@ -50,3 +50,8 @@ npm run build
 The **GitHub** tab creates issues through the shared Cedar authorization flow.
 Mock is the default. See [the step-by-step setup](../docs/4orbit/github-issues.md)
 for mock verification, GitHub App configuration, and an explicit real-repository grant.
+
+The policy playground's **Plain language** rule form supports **GitHub → Create
+issues** on named repositories, with role/agent selection, allow/block, expiry
+and editable existing GitHub rules. Unsupported close/edit operations remain
+separate work.

@@ -191,7 +191,7 @@ export function SimulatePage() {
               <PolicyChips ids={result.determiningPolicies} />
             </div>
             {result.explanation && (
-              <ExplanationView explanation={result.explanation} request={{ agentId: result.request.agentId, action: result.request.action, resource: result.request.resource.id }} />
+              <ExplanationView explanation={result.explanation} request={{ agentId: result.request.agentId, action: result.request.action, resource: result.request.resource.id, resourceType: result.request.resource.type }} />
             )}
             {result.diagnostics && (
               <ul className="problems">

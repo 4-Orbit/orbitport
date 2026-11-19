@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { entityIds } from "../draft.tsx";
+import { ExplanationView } from "../components/Explanation.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import type { GithubIssueResult, SimulateResult } from "../types.ts";
 
@@ -66,6 +67,7 @@ export function GithubPage() {
     </section>
     {simulated && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>Policy check · {simulation?.source}</h2><div><DecisionBadge decision={simulated.decision} /> <PolicyChips ids={simulated.determiningPolicies} /></div>
+      {simulated.explanation && <ExplanationView explanation={simulated.explanation} request={{ agentId: simulated.request.agentId, action: simulated.request.action, resource: simulated.request.resource.id, resourceType: "Repository" }} />}
       <p>No GitHub call was made.</p>
     </div></section>}
     {result && <section className="panel" aria-live="polite"><div className="panel-body stack">
