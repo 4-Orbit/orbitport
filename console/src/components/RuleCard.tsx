@@ -26,15 +26,18 @@ interface Props {
   problems: Problem[];
   /** Actions are locked while the draft is being re-validated or another rule is open. */
   disabled: boolean;
+  /** Registered agent ids; a rule for any other agent is flagged. */
+  agents: string[];
   onEdit: () => void;
   onEditCedar: () => void;
   onDelete: () => void;
 }
 
 /** One policy as a plain-language card. */
-export function RuleCard({ info, rule, text, problems, disabled, onEdit, onEditCedar, onDelete }: Props) {
+export function RuleCard({ info, rule, text, problems, disabled, agents, onEdit, onEditCedar, onDelete }: Props) {
   const allows = info.effect === "permit";
   const expired = rule ? isExpired(rule) : false;
+  const orphan = rule?.who.kind === "agent" && !agents.includes(rule.who.id) ? rule.who.id : null;
   return (
     <article className={`rule-card effect-${info.effect}${expired ? " expired" : ""}${problems.length ? " has-problems" : ""}`} aria-label={`Rule ${info.id || "(no name)"}`}>
       <header className="rule-head">
@@ -42,6 +45,11 @@ export function RuleCard({ info, rule, text, problems, disabled, onEdit, onEditC
         <code className="rule-id">{info.id || "(no name)"}</code>
         {expired && <span className="badge result result-none" title="The expiry time has passed; this rule no longer applies">EXPIRED</span>}
         {!rule && <span className="badge sim-time">CUSTOM CEDAR</span>}
+        {orphan && (
+          <span className="badge result result-error" title={`No agent ${orphan} is registered. This rule matches nobody now, but would apply at once to an agent registered later with that id.`}>
+            AGENT NOT REGISTERED
+          </span>
+        )}
         <span className={`rule-actions${disabled ? " locked" : ""}`} aria-disabled={disabled}>
           {rule ? (
             <button type="button" className="link-button" onClick={onEdit}>

@@ -168,6 +168,7 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
               text={c.text}
               problems={(validation?.problems ?? []).filter((p) => p.policyId && p.policyId === c.info.id)}
               disabled={stale || editing !== null}
+              agents={agents}
               onEdit={() => setEditing({ kind: "edit", index: c.index })}
               onEditCedar={onEditCedar}
               onDelete={() => {
