@@ -184,7 +184,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
         </fieldset>
 
         <fieldset className="span-2">
-          <legend>Can</legend>
+          <legend>{effect === "forbid" ? "Cannot" : "Can"}</legend>
           {!github && <label className="check">
             <input type="checkbox" checked={everything} onChange={(e) => setEverything(e.target.checked)} />
             <span>
