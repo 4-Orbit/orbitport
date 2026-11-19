@@ -1,8 +1,8 @@
 import { Intro, Term } from "../components/Help.tsx";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, keyResources } from "../api.ts";
 import { useDraft } from "../draft.tsx";
-import type { MatrixResult, PrincipalSummary } from "../types.ts";
+import type { Cell, MatrixResult, PrincipalSummary } from "../types.ts";
 import { MatrixGrid } from "../components/MatrixGrid.tsx";
 import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { SimTimeBadge } from "../components/Badges.tsx";
@@ -88,6 +88,17 @@ export function AccessPage() {
   // A new source, agent or filter starts the key list at its first page.
   useEffect(() => setKeyOffset(0), [base, selected, onlyAllowed, debouncedSearch]);
   useEffect(() => setAgentOffset(0), [choice, includeAccount]);
+
+  // Explains a clicked DENY cell against the grid's own source, time and key tags.
+  const explainCell = useCallback(
+    (cell: Cell) => {
+      const key = base.keys.find((k) => k.id === cell.resource) ?? { type: "Key", id: cell.resource };
+      return api
+        .explain({ agentId: cell.principal === "(account)" ? undefined : cell.principal, action: cell.action, resource: key }, base.source, base.at)
+        .then((r) => r.explanation);
+    },
+    [base],
+  );
 
   const rows = summary?.summary ?? [];
   const current = rows.find((r) => r.principal === selected) ?? null;
@@ -182,7 +193,7 @@ export function AccessPage() {
             )}
             {detail && detail.totalKeys > 0 && (
               <>
-                <MatrixGrid matrix={detail} hideHeader />
+                <MatrixGrid matrix={detail} hideHeader explain={explainCell} />
                 <div className="panel pager-bar">
                   <span className="muted small">{onlyAllowed ? "Keys this agent can access" : "All keys"}</span>
                   <Pager label="Keys" offset={detail.keyOffset} pageSize={KEYS_PER_PAGE} total={detail.totalKeys} onChange={setKeyOffset} />

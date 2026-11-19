@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { appendPolicy, fromPolicyJson, removeSpan, replaceSpan, toCedar, type Rule } from "../rules.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { KeyInfo, ValidateResult } from "../types.ts";
+import type { GrantRequest } from "../explain.ts";
 import { RuleCard } from "./RuleCard.tsx";
 import { RuleBuilder } from "./RuleBuilder.tsx";
 
@@ -14,15 +15,19 @@ interface Props {
   moreKeys?: boolean;
   onEditCedar: () => void;
   onChanged: (message: string) => void;
+  /** A "Grant this…" request to open in the builder (new or edit rule). */
+  grant?: GrantRequest | null;
+  /** Called once the grant was opened, or with a message when it can't be. */
+  onGrantHandled?: (problem?: string) => void;
 }
 
 /** Rule cards rendered at once; "Show more" adds another window. */
 const RULES_PER_PAGE = 50;
 
-type Editing = { kind: "new" } | { kind: "edit"; index: number } | null;
+type Editing = { kind: "new"; prefill?: Omit<Rule, "id"> } | { kind: "edit"; index: number } | null;
 
 /** The plain-language view of the draft's policies, with the rule builder. */
-export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged }: Props) {
+export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged, grant = null, onGrantHandled }: Props) {
   const draft = useDraft();
   // Edits use the validated spans, so they wait until validation catches up.
   const stale = validatedText !== draft.policies;
@@ -38,6 +43,31 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
     [infos, validatedText],
   );
   const takenIds = useMemo(() => new Set(cards.map((c) => c.info.id).filter(Boolean)), [cards]);
+  // Open a queued "Grant this…" once the cards describe the current draft.
+  useEffect(() => {
+    if (!grant || stale || !validation || grant.kind === "addRole") return;
+    // The form can open below the fold; bring it into view once rendered.
+    const reveal = () => requestAnimationFrame(() => document.querySelector(".rule-builder")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    if (grant.kind === "newRule") {
+      setEditing({ kind: "new", prefill: grant.rule });
+      onGrantHandled?.();
+      reveal();
+      return;
+    }
+    const index = cards.findIndex((c) => c.info.id === grant.policyId);
+    if (index < 0) {
+      onGrantHandled?.(`Rule ${grant.policyId} isn't in your draft. Load the version it came from on the Versions page to edit it.`);
+    } else if (!cards[index].rule) {
+      onGrantHandled?.(`Rule ${grant.policyId} is a custom rule; edit it in the Cedar view.`);
+    } else {
+      setFilter("");
+      setEditing({ kind: "edit", index });
+      onGrantHandled?.();
+      reveal();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grant, stale, validation, cards]);
+
   const roles = entityIds(draft.entities, "Role");
   const agents = entityIds(draft.entities, "Agent");
 
@@ -95,7 +125,7 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
       </div>
 
       {editing?.kind === "new" && (
-        <RuleBuilder initial={null} roles={roles} agents={agents} keys={keys} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
+        <RuleBuilder key={JSON.stringify(editing.prefill ?? null)} initial={null} prefill={editing.prefill} roles={roles} agents={agents} keys={keys} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
       )}
 
       {cards.length === 0 && editing === null && (

@@ -141,6 +141,7 @@ func (p *Plugin) methods() map[string]methodSpec {
 		"policy.Simulate":        {"policy.Simulate", p.simulate},
 		"policy.Matrix":          {"policy.Simulate", p.matrix},
 		"policy.Diff":            {"policy.Simulate", p.diff},
+		"policy.Explain":         {"policy.Simulate", p.explain},
 		"policy.RunTests":        {"policy.Simulate", p.runTests},
 		"policy.SaveDraft":       {"policy.Write", p.saveDraft},
 		"policy.PutTests":        {"policy.Write", p.putTests},
@@ -461,11 +462,17 @@ type simRequest struct {
 	Resource authz.Resource `json:"resource"`
 }
 
+// maxSimulateExplanations bounds the explanations one Simulate call computes;
+// each costs a few evaluations per tenant permit.
+const maxSimulateExplanations = 50
+
 func (p *Plugin) simulate(ctx context.Context, c *call) (any, error) {
 	var params struct {
 		Source   *source      `json:"source,omitempty"`
 		Requests []simRequest `json:"requests"`
 		At       int64        `json:"at,omitempty"`
+		// Attach an explanation to each DENY (the first 50).
+		Explain bool `json:"explain,omitempty"`
 	}
 	if err := c.decode(&params); err != nil {
 		return nil, err
@@ -479,22 +486,64 @@ func (p *Plugin) simulate(ctx context.Context, c *call) (any, error) {
 	}
 	at, simulated := p.simTime(params.At)
 	results := make([]map[string]any, 0, len(params.Requests))
+	explained, truncated := 0, false
 	for _, sr := range params.Requests {
 		sr.Resource.Tenant = "" // simulation stays inside the caller's tenant
-		res := authz.Evaluate(r.compiled, authz.Request{
+		req := authz.Request{
 			Principal: authz.Principal{Tenant: c.principal.Tenant, AgentID: sr.AgentID},
 			Action:    sr.Action,
 			Resource:  sr.Resource,
-		}, at)
+		}
+		res := authz.Evaluate(r.compiled, req, at)
 		item := map[string]any{"request": sr, "decision": res.Decision, "determiningPolicies": res.DeterminingPolicies, "errored": res.Errored}
 		if res.Errored {
 			// Diagnostics go only to the tenant's own operator, who wrote the
 			// policy; they never reach the audit log.
 			item["diagnostics"] = res.Diagnostics
 		}
+		if params.Explain && res.Decision == authz.Deny {
+			if explained < maxSimulateExplanations {
+				item["explanation"] = authz.Explain(r.compiled, req, at)
+				explained++
+			} else {
+				truncated = true
+			}
+		}
 		results = append(results, item)
 	}
-	return map[string]any{"source": r.label, "at": at.Unix(), "simulatedTime": simulated, "results": results}, nil
+	out := map[string]any{"source": r.label, "at": at.Unix(), "simulatedTime": simulated, "results": results}
+	if truncated {
+		out["explanationsTruncated"] = true
+	}
+	return out, nil
+}
+
+// explain says why one request is (or would be) denied by a source: the
+// active version by default, a saved version (for Activity, the version that
+// was enforced), or a draft.
+func (p *Plugin) explain(ctx context.Context, c *call) (any, error) {
+	var params struct {
+		Source   *source        `json:"source,omitempty"`
+		AgentID  string         `json:"agentId,omitempty"`
+		Action   string         `json:"action"`
+		Resource authz.Resource `json:"resource"`
+		At       int64          `json:"at,omitempty"`
+	}
+	if err := c.decode(&params); err != nil {
+		return nil, err
+	}
+	r, err := p.resolve(ctx, c.principal.Tenant, params.Source)
+	if err != nil {
+		return nil, err
+	}
+	at, simulated := p.simTime(params.At)
+	params.Resource.Tenant = "" // explanations stay inside the caller's tenant
+	e := authz.Explain(r.compiled, authz.Request{
+		Principal: authz.Principal{Tenant: c.principal.Tenant, AgentID: params.AgentID},
+		Action:    params.Action,
+		Resource:  params.Resource,
+	}, at)
+	return map[string]any{"source": r.label, "version": r.version, "at": at.Unix(), "simulatedTime": simulated, "explanation": e}, nil
 }
 
 type matrixParams struct {

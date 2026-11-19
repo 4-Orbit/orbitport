@@ -1,12 +1,26 @@
-import type { Cell, MatrixResult } from "../types.ts";
+import type { Cell, Explanation, MatrixResult } from "../types.ts";
 import { DecisionBadge, PolicyChips } from "./Badges.tsx";
-import { useState } from "react";
+import { LiveExplanation } from "./Explanation.tsx";
+import { useMemo, useState } from "react";
 
 const short = (action: string) => action.replace(/^kms\./, "");
 
 /** One table per principal: keys as rows, actions as columns. Click a cell to see why. */
-export function MatrixGrid({ matrix, onCell, hideHeader = false }: { matrix: MatrixResult; onCell?: (cell: Cell) => void; hideHeader?: boolean }) {
+export function MatrixGrid({
+  matrix,
+  onCell,
+  hideHeader = false,
+  explain,
+}: {
+  matrix: MatrixResult;
+  onCell?: (cell: Cell) => void;
+  hideHeader?: boolean;
+  /** Explains a DENY cell against the same source and time as the grid. */
+  explain?: (cell: Cell) => Promise<Explanation>;
+}) {
   const [picked, setPicked] = useState<Cell | null>(null);
+  // One loader per picked cell, so the explanation reloads only when it changes.
+  const load = useMemo(() => (picked && explain ? () => explain(picked) : null), [picked, explain]);
   const index = new Map(matrix.cells.map((c) => [`${c.principal}|${c.resource}|${c.action}`, c]));
   return (
     <div className="matrix">
@@ -68,6 +82,9 @@ export function MatrixGrid({ matrix, onCell, hideHeader = false }: { matrix: Mat
         <div className="panel cell-explain" role="status">
           <span className="mono">{picked.principal}</span> · <span className="mono">{picked.action}</span> · <span className="mono">{picked.resource}</span> → <DecisionBadge decision={picked.decision} />{" "}
           <PolicyChips ids={picked.determiningPolicies} />
+          {picked.decision === "DENY" && load && (
+            <LiveExplanation load={load} request={{ agentId: picked.principal === "(account)" ? undefined : picked.principal, action: picked.action, resource: picked.resource }} />
+          )}
         </div>
       )}
     </div>

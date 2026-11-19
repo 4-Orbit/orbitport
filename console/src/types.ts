@@ -75,6 +75,63 @@ export interface SimResult {
   determiningPolicies: string[];
   errored: boolean;
   diagnostics?: string[];
+  /** Present on DENYs when simulated with explain: true. */
+  explanation?: Explanation;
+}
+
+/** Why a request is denied, from the enforcement engine (authz.Explain). */
+export type ExplanationKind =
+  | "allowed"
+  | "invalidRequest"
+  | "noPolicy"
+  | "errored"
+  | "unknownAgent"
+  | "blocked"
+  | "expired"
+  | "notYet"
+  | "conditionFalse"
+  | "closest"
+  | "noRule";
+
+export interface EntityRef {
+  type: string;
+  id: string;
+}
+
+/** One part of a rule the request does not satisfy. */
+export interface Requirement {
+  part: "principal" | "action" | "resource" | "condition";
+  op?: "==" | "in" | "is" | "All";
+  entities?: EntityRef[];
+  entityType?: string;
+}
+
+/** A permit that would allow the request if its missing parts were met. */
+export interface Candidate {
+  policyId: string;
+  missing: Requirement[];
+  /** The request falls outside this rule's time window. */
+  window?: { kind: "expired" | "notYet"; at: number };
+}
+
+export interface Explanation {
+  decision: Decision;
+  kind: ExplanationKind;
+  determiningPolicies: string[];
+  message?: string;
+  erroredPolicies?: string[];
+  blockedBy?: { policyId: string; platform: boolean }[];
+  candidates?: Candidate[];
+  agentRoles?: string[];
+}
+
+export interface ExplainResult {
+  source: string;
+  /** The version explained against; 0 = draft or none. */
+  version: number;
+  at: number;
+  simulatedTime: boolean;
+  explanation: Explanation;
 }
 
 export interface SimulateResult {
@@ -218,6 +275,8 @@ export interface AuditFilter {
   decision?: Decision | "";
   action?: string;
   resource?: string;
+  /** Short token hash: the events of one credential. */
+  jtiHash?: string;
 }
 
 export interface AuditResult {
@@ -225,6 +284,21 @@ export interface AuditResult {
   /** Cursor for older matching events; "" = none left. */
   nextCursor: string;
   summary: { total: number; allow: number; deny: number; kmsCalled: number; errors: number };
+}
+
+/** POST /api/run: one real KMS request made as an agent by the console. */
+export interface RunResult {
+  /** The KMS's decision, from its audit event; null if no event was found. */
+  decision: Decision | null;
+  kmsCalled: boolean | null;
+  /** What happened, never the payload. */
+  outcome: string;
+  failed: boolean;
+  determiningPolicies: string[];
+  /** The version the KMS enforced. */
+  policyVersion: number | null;
+  requestId: string | null;
+  jtiHash: string;
 }
 
 export interface KeyInfo {

@@ -4,6 +4,8 @@ import { api } from "../api.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { SimResult, SimulateResult, TestCase } from "../types.ts";
 import { DecisionBadge, PolicyChips, SimTimeBadge } from "../components/Badges.tsx";
+import { ExplanationView } from "../components/Explanation.tsx";
+import { RunForReal } from "../components/RunForReal.tsx";
 import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { useKeys, useSchema, useVersions } from "./shared.ts";
 
@@ -72,6 +74,7 @@ export function SimulatePage() {
         ],
         toSource(choice, draft),
         toEpoch(when),
+        true,
       );
       setLast(r);
       setHistory((h) => [{ result: r.results[0], source: r.source, at: r.at, simulatedTime: r.simulatedTime }, ...h].slice(0, 15));
@@ -105,12 +108,12 @@ export function SimulatePage() {
   return (
     <div className="simulate-page">
       <Intro page="simulate" title="Simulate: ask “would this be allowed?”">
-        Try any agent, action and key against your <Term k="draft" />, the active version or any saved version, optionally at a <Term k="simulatedTime">simulated time</Term>. Nothing here touches the KMS. Save useful answers as <Term k="test">tests</Term>.
+        Try any agent, action and key against your <Term k="draft" />, the active version or any saved version, optionally at a <Term k="simulatedTime">simulated time</Term>. Evaluating never touches the KMS; <strong>Run it for real</strong> then sends the same request to the KMS as that agent, to compare. Save useful answers as <Term k="test">tests</Term>.
       </Intro>
       <section className="panel">
         <header className="panel-head">
           <h2>Ask Cedar</h2>
-          <span className="muted small">Nothing here calls the KMS.</span>
+          <span className="muted small">Evaluate never calls the KMS.</span>
         </header>
         <form
           className="panel-body sim-form"
@@ -187,6 +190,9 @@ export function SimulatePage() {
               <span className="muted small">Determined by </span>
               <PolicyChips ids={result.determiningPolicies} />
             </div>
+            {result.explanation && (
+              <ExplanationView explanation={result.explanation} request={{ agentId: result.request.agentId, action: result.request.action, resource: result.request.resource.id }} />
+            )}
             {result.diagnostics && (
               <ul className="problems">
                 {result.diagnostics.map((d, i) => (
@@ -196,6 +202,11 @@ export function SimulatePage() {
                 ))}
               </ul>
             )}
+            <RunForReal
+              key={`${last.at}|${JSON.stringify(result.request)}|${last.source}|${history.length}`}
+              request={result.request}
+              simulated={{ decision: result.decision, source: last.source, simulatedTime: last.simulatedTime }}
+            />
             <div className="row">
               <button type="button" className="button" onClick={() => void saveAsTest()}>
                 Save as test case

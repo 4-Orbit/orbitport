@@ -68,6 +68,16 @@ export const GLOSSARY = {
     term: "Shadow mode",
     short: "A KMS setting where decisions are recorded but nothing is blocked. Useful for trying rules on real traffic.",
   },
+  whyDenied: {
+    term: "Why was this denied?",
+    short:
+      "Shown on every DENY in Simulate, Access and Activity: the rule that blocked it, the grant that expired, the closest rule and what it's missing, or that no rule covers it. Worked out by the same engine the KMS uses. “Grant this…” prepares the fix in your draft.",
+  },
+  runForReal: {
+    term: "Run it for real",
+    short:
+      "On Simulate: sends the same request to the KMS as that agent, with sample data and a short-lived token the console mints, and shows the real decision beside the simulated one. Only for actions that don't change a key; marked “from console” on Activity.",
+  },
   simulatedTime: {
     term: "Simulated time",
     short: "Ask “what would happen at this date?”, for example after an expiry. Only the simulator can change the time; the KMS always uses its real clock.",

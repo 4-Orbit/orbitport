@@ -1,4 +1,4 @@
-# Console usability roadmap (items 1–15)
+# Console usability roadmap (items 1–16)
 
 The plan for the next round of console work, after steps 1–3 (undo and confirmations, plain-language rules, Draft → Saved → Active, in-console help). Each item lists the problem, the change, the backend and frontend work, how we'll know it's done, and a size: **S** ≈ ½–1 day, **M** ≈ 2–3 days, **L** ≈ 4–5 days.
 
@@ -13,6 +13,12 @@ Ground rules carried over:
 ## Milestone A: understand and fix access (≈ 2 weeks)
 
 ### 1. "Why was this denied?" + Grant this (L)
+
+> **Status: done** on `feat/why-denied`, with these differences from the plan below:
+> - "Grant this" hands the fix to the Policies page through the draft context (like "Replay in simulator"), not a `#/policies?grant=…` link.
+> - It offers, in order: a rule for just this agent (the narrowest grant), the same rule for one of its roles, and (when only a role is missing) adding the agent to that role. A tenant forbid gets "Edit the blocking rule", an expired or not-yet-valid grant gets "Extend…"/"Edit…", and platform rules get no button.
+> - Activity explains a DENY against the version that was enforced, at the time of the request, but with the key's *current* tags, because audit events don't record tags. `policy.*` denials are explained against the platform rules alone.
+> - Explanations list at most 3 candidate rules. The tenant-fence explanation exists in the engine, but the console never shows it, because Simulate and Explain stay inside the caller's tenant.
 - **Problem:** a DENY says "default deny" and nothing more. Users can't tell what's missing (usability task 2).
 - **Change:** on any DENY (Activity detail, Access cell, Simulate result), explain it:
   - *Blocked by* `no-prod-for-developers` (a forbid matched);
@@ -168,13 +174,45 @@ Ground rules carried over:
 
 ---
 
+## 16. Run it for real (S–M)
+
+> **Status: done** on `feat/why-denied`, with these differences from the plan below:
+> - The console server's agent tokens last 120 s (renewed 15 s early), not 5 minutes. The issuer's 60-second minimum rejected tokens at exactly 60 s, which is now fixed in `plugin-patissuer`.
+> - `RotateKey` and `CreateKey` are left out entirely.
+> - Decrypt sends a dummy ciphertext with `KeyId`, so Cedar decides on the key and an ALLOW ends in a KMS error.
+> - The real decision, deciding rules and version are read from the KMS's own audit event, found by the token's jti hash, not inferred from the KMS response.
+> - "From console" labels come from the console server's memory, so they're lost when it restarts.
+> - The e2e check compares 27 real and simulated decisions (3 agents × encrypt, decrypt, metadata × 3 keys) on whatever version is active. The browser loop lives in `console/e2e/` and runs with `npm run e2e:browser` against a live stack.
+
+- **Problem:** the console can only *predict* decisions (Simulate, Access, Diff). To check that the KMS really agrees, you have to leave for a terminal (`scripts/4orbit/rpc.sh`) or set up an MCP agent.
+- **Change:** next to each Simulate result, add **Run it for real**. It sends the same request to the KMS *as that agent* and shows the real decision beside the simulated one ("Simulated: ALLOW · Real: ALLOW"). If the two ever disagree, the console flags it loudly, because that's a bug.
+  - Allowed out of the box: actions that don't change anything (encrypt → decrypt with sample text, `Sign`, `GenerateDataKey`, `GetKeyMetadata`, `GetPublicKey`).
+  - `RotateKey` and `CreateKey` permanently change keys. They sit behind a confirmation, or are left out of the first version.
+  - Later, the same control appears on the per-agent page (item 2) as **Try an action**.
+- **How it runs:**
+  - The console server mints a 5-minute token for the chosen agent (`policy.IssueAgentToken`), makes the KMS call with it, and discards it. The browser never sees the token.
+  - It never uses the operator token. That token can do everything, so a run with it would prove nothing about the agent's permissions.
+- **Backend:** none in the plugins. In the console server:
+  - add only these KMS methods to the allowlist (`console/server/app.ts`), and only for calls made with a minted agent token;
+  - rate-limit runs;
+  - return the decision and a short result, never key material.
+- **Frontend:** a button on Simulate results and a side-by-side result. Activity marks these events **from console**, recognised by the `jti` hash of the token the console minted, so they aren't mistaken for the agent's own traffic.
+- **Depends on:** item 1. The full loop is run for real → DENY → *why* → **Grant this** → activate → run again → ALLOW.
+- **Done when:**
+  - for every cell of the default template's matrix, the real decision equals the simulated one (e2e);
+  - the operator token never reaches the KMS through this path (console server test);
+  - console runs are labelled on Activity.
+- **Later:** once the console has real sign-in (TODO.md), running for real needs its own permission.
+
+---
+
 ## Order and estimate
 
 | Sprint | Items | Why this order |
 |---|---|---|
 | 0 (2–3 days) | Baseline usability test · **15 (versions paging + hash duplicate check, keys `truncated` handling)** | Measure first; fix the silent truncation bugs before adding features on top of them |
 | 1 | 3 (version naming) · 4 (save & activate) · 10 (one message area) · 9 (roles editor) | Small, high-visibility wins that make versions understandable |
-| 2 | 1 (why denied + Grant this) · rest of 15 (activity and keys paging) | The biggest comprehension gain; Explain is reused by item 2 |
+| 2 | 1 (why denied + Grant this, **done**) · 16 (run it for real, **done**) · rest of 15 (activity and keys paging) | The biggest comprehension gain; Explain is reused by item 2, and 16 closes the predict → act → fix loop |
 | 3 | 2 (agent pages) · 6 (usage warnings) · second usability round | Agent-centric view, then measure |
 | 4 | 5 (shadow trials) · 7 (readable tests) · 8 (export/import) | Safer rollout and durability |
 | 5 | 11 (Access at scale) · 13 (task-based tabs) · 14 (accessibility) · 12 (tour, only if still needed) · third usability round | Polish once the structure has settled |

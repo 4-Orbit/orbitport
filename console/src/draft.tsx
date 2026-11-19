@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import type { Bundle, EntityJson, SimRequest } from "./types.ts";
+import type { GrantRequest } from "./explain.ts";
 import { draftReducer, type DraftState, type Snapshot } from "./draft-history.ts";
 
 interface DraftApi extends DraftState {
@@ -18,6 +19,9 @@ interface DraftApi extends DraftState {
   /** A request queued for the simulator (Activity replay, Access cell). */
   pendingSim: SimRequest | null;
   setPendingSim: (r: SimRequest | null) => void;
+  /** A "Grant this…" fix queued for the Policies page. */
+  pendingGrant: GrantRequest | null;
+  setPendingGrant: (g: GrantRequest | null) => void;
 }
 
 const STORAGE_KEY = "orbitport-console-draft-v1";
@@ -40,6 +44,7 @@ const Ctx = createContext<DraftApi | null>(null);
 export function DraftProvider({ children }: { children: ReactNode }) {
   const [store, dispatch] = useReducer(draftReducer, undefined, () => ({ draft: loadStored(), past: [], future: [], lastTypingAt: 0 }));
   const [pendingSim, setPendingSim] = useState<SimRequest | null>(null);
+  const [pendingGrant, setPendingGrant] = useState<GrantRequest | null>(null);
   const { draft } = store;
 
   useEffect(() => {
@@ -73,8 +78,10 @@ export function DraftProvider({ children }: { children: ReactNode }) {
       bundle: { policies: draft.policies, entities: draft.entities },
       pendingSim,
       setPendingSim,
+      pendingGrant,
+      setPendingGrant,
     }),
-    [draft, store.past, store.future, setPolicies, commit, setEntities, load, markSaved, undo, redo, pendingSim],
+    [draft, store.past, store.future, setPolicies, commit, setEntities, load, markSaved, undo, redo, pendingSim, pendingGrant],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

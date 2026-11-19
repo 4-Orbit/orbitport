@@ -175,10 +175,10 @@ $R operator policy.Simulate '{"at":1800000000,"requests":[{"agentId":"developer-
 # "DENY"
 ```
 
-To run all 47 end-to-end checks (enforcement, forged and tampered tokens, audit, playground API, the test gate, live activation and rollback, and agent tokens):
+To run all 57 end-to-end checks (enforcement, forged and tampered tokens, audit, playground API including explanations, paging, the test gate, live activation and rollback, agent tokens, and real decisions matching simulated ones):
 
 ```sh
-make 4orbit-e2e          # ends with "passed: 47  failed: 0"
+make 4orbit-e2e          # ends with "passed: 57  failed: 0"
 ```
 
 ---
@@ -189,10 +189,10 @@ Open **http://127.0.0.1:4317**. Use `127.0.0.1` or `localhost`; any other Host h
 
 | Tab | What it does |
 |---|---|
-| **Activity** | Every KMS decision and policy-admin attempt (polls every 3 s), with filters by agent, decision, action and key. Click a row for the determining policies, whether the KMS was called, enforce or shadow mode, and the policy version. **Replay in simulator** sends that request to the Simulate tab. |
-| **Access** | Agents × keys × KMS actions for the active version, the editor draft or any saved version, at the current time or a simulated one. Click a cell to see why. |
+| **Activity** | Every KMS decision and policy-admin attempt (polls every 3 s), with filters by agent, decision, action and key. Click a row for the determining policies, whether the KMS was called, enforce or shadow mode, and the policy version; a DENY also says **why** (explained against the version that was enforced). **Replay in simulator** sends that request to the Simulate tab. Requests made by **Run it for real** are marked FROM CONSOLE. |
+| **Access** | Agents × keys × KMS actions for the active version, the editor draft or any saved version, at the current time or a simulated one. Click a cell to see why; a DENY cell is explained. |
 | **Policies** | A Cedar editor with highlighting and server-side validation as you type (the same engine as enforcement, with errors placed at their line). Also: an agents-and-roles editor, snippets, **What changes vs active?** (the decision diff), **Save as new version**, and the read-only platform policy. |
-| **Simulate** | Ask Cedar about any principal, action, resource, key tags, source and time. Results show a SIMULATED TIME badge when you time-travel. **Save as test case** adds the result to the test suite. |
+| **Simulate** | Ask Cedar about any principal, action, resource, key tags, source and time. Results show a SIMULATED TIME badge when you time-travel. A DENY says **why** (blocked, expired, the closest rule and what it needs, or no rule), with **Grant this…**, which prepares the fix in your draft. **Run it for real** sends the same request to the KMS as that agent (sample data, a token the console mints and never shows; only actions that don't change a key) and shows the real decision beside the simulated one. **Save as test case** adds the result to the test suite. |
 | **Tests** | The tenant's saved expectations. Run them against the draft, the active version or any saved version; add or remove cases and save the suite. |
 | **Versions** | The version list, a decision diff and text diff against the active version, **Activate** (refused while any test fails, showing which cases fail, with an explicit *Activate anyway* step), **Roll back**, and **Open in editor**. |
 | **Agents** | Registered agents and their roles. **Mint token** issues a short-lived agent PAT, shown once, with a ready-to-paste `kms-mcp` config. |
@@ -205,7 +205,8 @@ A five-minute walkthrough:
 4. **Versions → Activate**: refused, because the 4Orbit suite expects the developer's rotate on `dev-key` to be DENY. Read the failing case, then either use **Activate anyway…** or update the case on **Tests** and activate.
 5. Within about 5 s, `scripts/4orbit/rpc.sh developer-agent kms.RotateKey '{"KeyId":"kms:dev-key"}'` succeeds. **Activity** names your new policy and version.
 6. **Versions → Roll back to this** on v1. The same call is denied again.
-7. **Simulate**: `developer-agent`, `kms.Encrypt`, `demo-key`, time `2027-01-16 00:00:00` gives DENY with a SIMULATED TIME badge.
+7. **Simulate**: `developer-agent`, `kms.Encrypt`, `demo-key`, time `2027-01-16 00:00:00` gives DENY with a SIMULATED TIME badge, and "stopped applying on Jan 15, 2027" under **Why was this denied?**
+8. **Simulate**: `developer-agent`, `kms.Decrypt`, `dev-key`, against the active version: DENY. **Run it for real** agrees. **Grant this…** opens the rule form pre-filled on Policies; add, save and activate it, then run it for real again: ALLOW.
 
 For console development with hot reload against the running stack:
 
@@ -254,7 +255,8 @@ Ask the agent to encrypt with `kms:dev-key` (allowed) and then to rotate it (den
 | 4Orbit unit tests (Go engine, KMS, policy, auth, patissuer; Rust gateway; console) | `make 4orbit-test` | no | pass |
 | Lint | `make lint` (`golangci-lint` + `clippy -D warnings`) | no | 0 issues |
 | Console typecheck and build | `cd console && npm run typecheck && npm run build` | no | pass |
-| 4Orbit end-to-end | `make 4orbit-e2e` | 4Orbit stack | 47/47 |
+| 4Orbit end-to-end | `make 4orbit-e2e` | 4Orbit stack | 57/57 on a freshly seeded stack (the Matrix checks expect the default template) |
+| Console browser loop (DENY → why → Grant this → activate → real ALLOW; restores the active version) | `cd console && npm run e2e:browser` (`CONSOLE_URL` for a console other than :4317) | 4Orbit stack and console | pass |
 | Original gateway e2e | `make devenv && make e2e-all` | plain dev stack (`authnoop`) | all pass except `kms_ethereum_create_key_and_sign` and `threshold_coordinate_dkg`, which need the private OpenBao plugins (§2) |
 | Original beacon e2e | `make go-e2e` | plain dev stack | pass |
 

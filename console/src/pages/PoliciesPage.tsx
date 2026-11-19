@@ -9,6 +9,7 @@ import type { CellChange, EntityJson, TestCase, ValidateResult } from "../types.
 import { appendSnippet, CedarEditor } from "../components/CedarEditor.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { useKeys, useSchema, useVersionState } from "./shared.ts";
+import { withRole } from "../explain.ts";
 
 type Mode = "rules" | "cedar";
 const MODE_KEY = "orbitport-console-policy-mode";
@@ -98,10 +99,32 @@ export function PoliciesPage() {
   const [entitiesJson, setEntitiesJson] = useState(false);
 
   // First visit with an empty draft: start from the active version.
+  // `started` turns true once the draft is the one to edit, so a queued
+  // "Grant this…" never applies to a draft that is about to be replaced.
+  const [started, setStarted] = useState(false);
   useEffect(() => {
-    if (draft.policies === "" && draft.entities.length === 0 && draft.base === null) void loadActive();
+    if (draft.policies === "" && draft.entities.length === 0 && draft.base === null) void loadActive().then(() => setStarted(true));
+    else setStarted(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // "Grant this…" from an explanation: show the rules, then either add the
+  // agent to a role here or let RulesView open the rule form.
+  const grant = draft.pendingGrant;
+  useEffect(() => {
+    if (!grant) return;
+    if (mode !== "rules") setMode("rules");
+    if (!started || grant.kind !== "addRole") return;
+    const next = withRole(draft.entities, grant.agentId, grant.role);
+    if (next === draft.entities) {
+      announce(`${grant.agentId} already has the ${grant.role} role in your draft.`);
+    } else {
+      draft.setEntities(next, `add ${grant.agentId} to role ${grant.role}`);
+      announce(`Added ${grant.agentId} to the ${grant.role} role in your draft. Save and activate it to enforce the change.`);
+    }
+    draft.setPendingGrant(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grant, started]);
 
   // Debounced live validation with the enforcement engine. The result keeps
   // the exact text it describes, because rule cards edit by text position.
@@ -302,7 +325,19 @@ export function PoliciesPage() {
           </header>
           <div className="panel-body">
             {mode === "rules" ? (
-              <RulesView validation={validation} validatedText={checked?.text ?? ""} keys={keys.data ?? []} moreKeys={keys.more} onEditCedar={() => setMode("cedar")} onChanged={announce} />
+              <RulesView
+                validation={validation}
+                validatedText={checked?.text ?? ""}
+                keys={keys.data ?? []}
+                moreKeys={keys.more}
+                onEditCedar={() => setMode("cedar")}
+                onChanged={announce}
+                grant={started && grant?.kind !== "addRole" ? grant : null}
+                onGrantHandled={(problem) => {
+                  draft.setPendingGrant(null);
+                  if (problem) setStatus({ tone: "error", text: problem });
+                }}
+              />
             ) : (
               <>
                 <CedarEditor

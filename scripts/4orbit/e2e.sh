@@ -76,6 +76,7 @@ expect "operator rotates dev-key (ALLOW: platform.owner)" operator kms.RotateKey
 
 echo "== Policy administration is account-only"
 expect "agent cannot read policy"         security-agent  policy.GetActive '{}' "$(denied)"
+expect "agent cannot ask for explanations" security-agent policy.Explain '{"action":"kms.Encrypt","resource":{"type":"Key","id":"dev-key"}}' "$(denied)"
 expect "agent cannot activate a version"  security-agent  policy.Activate '{"version":1}' "$(denied)"
 expect "agent cannot mint agent tokens"   developer-agent policy.IssueAgentToken '{"agentId":"security-agent"}' "$(denied)"
 expect "agent cannot list keys"           developer-agent policy.ListKeys '{}' "$(denied)"
@@ -116,6 +117,15 @@ expect "Simulate: developer demo-key now (ALLOW)" operator policy.Simulate \
 expect "Simulate time travel past US5 expiry (DENY)" operator policy.Simulate \
   '{"at":1800000000,"requests":[{"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}]}' \
   '.result.results[0].decision == "DENY" and .result.simulatedTime == true'
+expect "Explain: developer rotating dev-key names the closest rule" operator policy.Explain \
+  '{"agentId":"developer-agent","action":"kms.RotateKey","resource":{"type":"Key","id":"dev-key"}}' \
+  '.result.explanation.kind == "closest" and .result.explanation.candidates[0].policyId == "security-rotate-dev-key"'
+expect "Explain: the US5 grant expired at its boundary" operator policy.Explain \
+  '{"at":1800000000,"agentId":"developer-agent","action":"kms.Encrypt","resource":{"type":"Key","id":"demo-key"}}' \
+  '.result.explanation.kind == "expired" and .result.explanation.candidates[0].window.at == 1800000000'
+expect "Simulate attaches explanations to DENYs on request" operator policy.Simulate \
+  '{"explain":true,"requests":[{"agentId":"developer-agent","action":"kms.RotateKey","resource":{"type":"Key","id":"dev-key"}}]}' \
+  '.result.results[0].explanation.kind == "closest"'
 expect "Matrix over the active version" operator policy.Matrix '{}' '.result.cells | length == 90'
 expect "Stored test suite passes" operator policy.RunTests '{}' '.result.failed == 0 and .result.total == 98'
 
@@ -187,6 +197,43 @@ fresh="$("$rpc" operator policy.IssueAgentToken '{"agentId":"deployment-agent","
 out="$(curl -sS "$url/api/v1/rpc" -H 'Content-Type: application/json' -H "Authorization: Bearer $fresh" \
   -d '{"jsonrpc":"2.0","id":1,"method":"kms.Encrypt","params":{"KeyId":"kms:prod-key","Plaintext":"aGVsbG8="}}')"
 echo "$out" | jq -e '.result.KeyId == "kms:prod-key"' >/dev/null && ok "freshly minted deployment token works" || bad "fresh token works" "$out"
+
+echo "== Run it for real: enforcement matches simulation"
+# The requests the console's "Run it for real" sends (sample data; decrypt
+# uses a dummy ciphertext with KeyId, so Cedar decides on the key), made with
+# each agent's own token. A DENY is "denied by policy"; anything else means
+# Cedar allowed it, including a KMS error afterwards (the dummy ciphertext).
+mismatches=()
+sim_requests="[]"
+real_decisions=()
+for agent in developer-agent security-agent deployment-agent; do
+  for action in kms.Encrypt kms.Decrypt kms.GetKeyMetadata; do
+    for key in demo-key dev-key prod-key; do
+      case "$action" in
+        kms.Encrypt) params="{\"KeyId\":\"kms:$key\",\"Plaintext\":\"aGVsbG8=\"}" ;;
+        kms.Decrypt) params="{\"KeyId\":\"kms:$key\",\"CiphertextBlob\":\"orbitport-console-sample\"}" ;;
+        *)           params="{\"KeyId\":\"kms:$key\"}" ;;
+      esac
+      out="$("$rpc" "$agent" "$action" "$params" 2>&1)"
+      if echo "$out" | jq -e "$(denied)" >/dev/null 2>&1; then real_decisions+=("DENY"); else real_decisions+=("ALLOW"); fi
+      sim_requests="$(jq -c --arg a "$agent" --arg ac "$action" --arg k "$key" '. + [{agentId:$a, action:$ac, resource:{type:"Key", id:$k}}]' <<<"$sim_requests")"
+    done
+  done
+done
+simulated="$("$rpc" operator policy.Simulate "$(jq -cn --argjson r "$sim_requests" '{requests:$r}')" | jq -r '.result.results[].decision')"
+i=0
+while read -r sim; do
+  if [[ "$sim" != "${real_decisions[$i]}" ]]; then
+    mismatches+=("$(jq -r --argjson i "$i" '.[$i] | "\(.agentId) \(.action) \(.resource.id)"' <<<"$sim_requests"): simulated $sim, real ${real_decisions[$i]}")
+  fi
+  i=$((i + 1))
+done <<<"$simulated"
+allowed_count="$(printf '%s\n' "${real_decisions[@]}" | grep -c ALLOW)"
+if [[ $i -eq ${#real_decisions[@]} && ${#mismatches[@]} -eq 0 ]]; then
+  ok "real decisions equal simulated ones for all $i requests ($allowed_count allowed)"
+else
+  bad "real decisions equal simulated ones" "$(printf '%s; ' "${mismatches[@]}") (compared $i of ${#real_decisions[@]})"
+fi
 
 echo
 echo "passed: $pass  failed: $fail"

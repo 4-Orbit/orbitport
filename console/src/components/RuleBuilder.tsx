@@ -7,6 +7,8 @@ import { toEpoch } from "./SourcePicker.tsx";
 interface Props {
   /** The rule being edited, or null for a new rule. */
   initial: Rule | null;
+  /** For a new rule: fields to start from ("Grant this…"). The id is suggested. */
+  prefill?: Omit<Rule, "id">;
   roles: string[];
   agents: string[];
   keys: KeyInfo[];
@@ -32,16 +34,17 @@ function visibleKeys(all: string[], selected: string[], search: string): { shown
 const fromEpochLocal = (s: number) => new Date(s * 1000).toISOString().slice(0, 19);
 
 /** Plain-language form for one rule. Cedar is generated from it. */
-export function RuleBuilder({ initial, roles, agents, keys, moreKeys = false, referencedKeys, takenIds, onSave, onCancel }: Props) {
-  const [effect, setEffect] = useState<Effect>(initial?.effect ?? "permit");
-  const [who, setWho] = useState<Who>(initial?.who ?? (roles[0] ? { kind: "role", id: roles[0] } : { kind: "anyAgent" }));
+export function RuleBuilder({ initial, prefill, roles, agents, keys, moreKeys = false, referencedKeys, takenIds, onSave, onCancel }: Props) {
+  const seed = initial ?? prefill ?? null;
+  const [effect, setEffect] = useState<Effect>(seed?.effect ?? "permit");
+  const [who, setWho] = useState<Who>(seed?.who ?? (roles[0] ? { kind: "role", id: roles[0] } : { kind: "anyAgent" }));
   // "Everything" is its own explicit choice: an empty selection must never
   // silently become "every action" (the rule model's encoding of everything).
-  const [everything, setEverything] = useState(initial?.can.length === 0);
-  const [can, setCan] = useState<string[]>(initial && initial.can.length > 0 ? initial.can : ["kms.Encrypt"]);
-  const [on, setOn] = useState<On>(initial?.on ?? { kind: "keys", ids: [] });
-  const [expires, setExpires] = useState(initial?.until !== undefined);
-  const [until, setUntil] = useState(initial?.until !== undefined ? fromEpochLocal(initial.until) : "");
+  const [everything, setEverything] = useState(seed?.can.length === 0);
+  const [can, setCan] = useState<string[]>(seed && seed.can.length > 0 ? seed.can : ["kms.Encrypt"]);
+  const [on, setOn] = useState<On>(seed?.on ?? { kind: "keys", ids: [] });
+  const [expires, setExpires] = useState(seed?.until !== undefined);
+  const [until, setUntil] = useState(seed?.until !== undefined ? fromEpochLocal(seed.until) : "");
   const [customId, setCustomId] = useState<string | null>(initial?.id ?? null);
   const [showCedar, setShowCedar] = useState(false);
   const [newKey, setNewKey] = useState("");

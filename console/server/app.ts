@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { serveStatic } from "./static.ts";
 import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
+import { parseRunRequest, RunError, Runner } from "./run.ts";
 
 /**
  * The console's backend-for-frontend. It holds the operator (account) PAT,
@@ -18,6 +19,9 @@ export interface AppOptions {
   staticDir?: string;
   allowedHosts?: string[];
   fetchImpl?: typeof fetch;
+  /** Clock and sleep for console runs (tests replace them). */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Methods the browser may call. Everything else is refused here. */
@@ -34,6 +38,7 @@ export const ALLOWED_METHODS = new Set([
   "policy.Simulate",
   "policy.Matrix",
   "policy.Diff",
+  "policy.Explain",
   "policy.RunTests",
   "policy.SaveDraft",
   "policy.PutTests",
@@ -47,15 +52,21 @@ const MAX_BODY_BYTES = 600 * 1024;
 const DEFAULT_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 
 export function createApp(opts: AppOptions): Server {
+  const runner = new Runner({
+    gatewayUrl: opts.gatewayUrl,
+    fetchImpl: opts.fetchImpl ?? fetch,
+    now: opts.now ?? Date.now,
+    sleep: opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+  });
   return createServer((req, res) => {
-    route(req, res, opts).catch((err: unknown) => {
+    route(req, res, opts, runner).catch((err: unknown) => {
       console.error(`[console] ${req.method} ${req.url}: ${err instanceof Error ? err.message : err}`);
       if (!res.headersSent) sendJson(res, 500, { error: "internal error" });
     });
   });
 }
 
-async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions): Promise<void> {
+async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions, runner: Runner): Promise<void> {
   const hosts = new Set(opts.allowedHosts ?? DEFAULT_HOSTS);
   if (!hosts.has(hostnameOf(req.headers.host))) return sendJson(res, 403, { error: "forbidden host" });
 
@@ -77,6 +88,29 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (!token) return sendJson(res, 503, { error: "operator token missing: run `make 4orbit-seed`" });
     const out = await callGateway(opts.gatewayUrl, token, body, opts.fetchImpl ?? fetch);
     return sendJson(res, out.status, out.body);
+  }
+
+  // Run it for real: one KMS request as an agent, with a token minted here.
+  // Separate from /api/rpc, whose allowlist never includes KMS operations.
+  if (pathname === "/api/run") {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "method not allowed" });
+    if (!/^application\/json\b/.test(req.headers["content-type"] ?? "")) return sendJson(res, 415, { error: "expected application/json" });
+    const parsed = parseRunRequest(await readJsonBody(req));
+    if (typeof parsed === "string") return sendJson(res, 400, { error: parsed });
+    const token = readToken(opts.tokenFile);
+    if (!token) return sendJson(res, 503, { error: "operator token missing: run `make 4orbit-seed`" });
+    try {
+      return sendJson(res, 200, { result: await runner.run(token, parsed) });
+    } catch (e) {
+      if (e instanceof RunError) return sendJson(res, e.status, { error: e.message });
+      throw e;
+    }
+  }
+
+  // Token hashes of console runs, so Activity can label those events.
+  if (pathname === "/api/console-runs") {
+    if (req.method !== "GET") return sendJson(res, 405, { error: "method not allowed" });
+    return sendJson(res, 200, { jtiHashes: runner.consoleRuns() });
   }
 
   if (pathname.startsWith("/api/")) return sendJson(res, 404, { error: "not found" });

@@ -1014,6 +1014,127 @@ table.compact td {
   box-shadow: 0 4px 18px #0008;
 }
 
+/* ---------- why was this denied? ---------- */
+
+.explanation {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--deny-line);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  max-width: 72ch;
+}
+
+.explanation p {
+  margin: 0;
+}
+
+.explanation-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.explanation-headline {
+  margin-top: 4px !important;
+  color: var(--text-strong);
+  line-height: 1.5;
+}
+
+.explanation-headline .chip,
+.explanation-details .chip {
+  margin: 0 2px;
+}
+
+.explanation-details {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.explanation .muted.small {
+  margin-top: 6px;
+}
+
+.explanation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.explanation-action {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.explanation-actions > p {
+  flex-basis: 100%;
+}
+
+/* ---------- run it for real ---------- */
+
+.run-real {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.run-compare {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--real);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  max-width: 72ch;
+}
+
+.run-compare p {
+  margin: 6px 0 0;
+}
+
+.run-compare.run-agree {
+  border-left-color: var(--allow-line);
+}
+
+.run-compare.run-expected,
+.run-compare.run-unknown {
+  border-left-color: var(--warn);
+}
+
+.run-compare.run-disagree {
+  border-left-color: var(--deny-line);
+}
+
+.run-alarm {
+  color: var(--deny-line);
+  font-weight: 600;
+}
+
+.run-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.run-sides > div {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.badge.console-run {
+  background: var(--real);
+  color: var(--real-text);
+  border-color: var(--real);
+}
+
 /* ---------- simulator / tests / versions / agents ---------- */
 
 .sim-form {
