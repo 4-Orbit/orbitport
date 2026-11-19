@@ -76,7 +76,6 @@ The seeded keys are real Transit keys, but OpenBao runs in dev mode (in memory, 
 
 Issue creation on one configured repository works. The design for the rest is in [`github.md`](github.md#whats-next).
 
-- [ ] **Org test repository (S).** Move off `laurenc06/orbitport-issue-test` to a repo under the 4-Orbit org, with the App installed on only that repo.
 - [ ] **App private key in OpenBao (M).** Store the PEM in the KMS key-store, readable only by `plugin-github`. Later, Transit key import so the key can't be read back out (needs a platform-only import path in the KMS plugin).
 - [ ] **Repository discovery (M).** Fill `github.ListRepositories` from `GET /installation/repositories`, so a repository selected in the App becomes governable with no config change.
 - [ ] **Access grid for repositories (M).** Agents × GitHub actions × repositories on Access, and repositories in Simulate's explanations.
