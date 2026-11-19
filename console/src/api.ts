@@ -51,6 +51,9 @@ async function consoleCall<R>(path: string, body?: unknown): Promise<R> {
 }
 
 export const api = {
+  githubRepositories: () => rpc<{ repositories: string[]; mode: "mock" | "real" }>("github.ListRepositories"),
+  createGithubIssue: async (agentId: string, repository: string, title: string, body: string) =>
+    (await consoleCall<{ result: T.GithubIssueResult }>("/api/github/issues", { agentId, repository, title, body })).result,
   /** Run it for real: one KMS request as the agent, decided by enforcement. */
   runForReal: async (agentId: string, action: string, keyId: string) => (await consoleCall<{ result: T.RunResult }>("/api/run", { agentId, action, keyId })).result,
   /** Token hashes of this console's runs (for Activity labels). */

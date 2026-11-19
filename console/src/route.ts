@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export const PAGES = ["activity", "access", "policies", "simulate", "tests", "versions", "agents", "help"] as const;
+export const PAGES = ["github", "activity", "access", "policies", "simulate", "tests", "versions", "agents", "help"] as const;
 export type Page = (typeof PAGES)[number];
 
 export interface Route {

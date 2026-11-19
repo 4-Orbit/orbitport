@@ -12,6 +12,7 @@ use crate::proto::plugins::masterseed::master_seed_plugin_client::MasterSeedPlug
 
 use crate::proto::plugins::account::account_plugin_client::AccountPluginClient;
 use crate::proto::plugins::auth::auth_plugin_client::AuthPluginClient;
+use crate::proto::plugins::github::github_plugin_client::GithubPluginClient;
 use crate::proto::plugins::kms::kms_plugin_client::KmsPluginClient;
 use crate::proto::plugins::patissuer::pat_issuer_plugin_client::PatIssuerPluginClient;
 use crate::proto::plugins::policy::policy_plugin_client::PolicyPluginClient;
@@ -184,6 +185,19 @@ impl PluginCatalog {
             self.urls = Arc::new(urls);
         }
         self
+    }
+
+    pub fn with_github(mut self, github_url: Option<&str>) -> Self {
+        if let Some(url) = github_url {
+            let mut urls = (*self.urls).clone();
+            urls.insert("github".to_string(), url.to_string());
+            self.urls = Arc::new(urls);
+        }
+        self
+    }
+
+    pub async fn get_github_client(&self) -> Result<GithubPluginClient<Channel>, PluginError> {
+        Ok(GithubPluginClient::new(self.get_client("github").await?))
     }
 
     pub async fn get_policy_client(&self) -> Result<PolicyPluginClient<Channel>, PluginError> {

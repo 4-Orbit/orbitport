@@ -115,7 +115,11 @@ func TestUS5_DeveloperDemoKeyExpiresAtBoundary(t *testing.T) {
 func TestAccountPrincipalKeepsOwnerAccess(t *testing.T) {
 	for _, c := range []*Compiled{nil, defaultCompiled(t)} {
 		for _, action := range Actions() {
-			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: "any-key"}}, beforeExpiry)
+			id := "any-key"
+			if ResourceTypeFor(action) == "Repository" {
+				id = "test-owner/test-repo"
+			}
+			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: id}}, beforeExpiry)
 			if res.Decision != Allow || res.DeterminingPolicies[0] != "platform.owner" {
 				t.Errorf("account %s: want ALLOW by platform.owner, got %s %v", action, res.Decision, res.DeterminingPolicies)
 			}
@@ -315,6 +319,16 @@ func generatedTests() []TestCase {
 		TestCase{Name: "US5: developer demo-key one second before expiry", AgentID: "developer-agent", Action: "kms.Encrypt", Resource: Resource{Type: "Key", ID: "demo-key"}, At: 1_799_999_999, Expect: Allow},
 		TestCase{Name: "US5: developer demo-key at expiry", AgentID: "developer-agent", Action: "kms.Encrypt", Resource: Resource{Type: "Key", ID: "demo-key"}, At: 1_800_000_000, Expect: Deny},
 	)
+	for _, tc := range []struct {
+		agent, repo string
+		expect      Decision
+	}{
+		{"developer-agent", "demo-owner/orbitport-test", Allow},
+		{"security-agent", "demo-owner/orbitport-test", Deny},
+		{"developer-agent", "other-owner/other-repo", Deny},
+	} {
+		cases = append(cases, TestCase{Name: tc.agent + " create issue " + tc.repo, AgentID: tc.agent, Action: "github.issue.Create", Resource: Resource{Type: "Repository", ID: tc.repo}, Expect: tc.expect})
+	}
 	return cases
 }
 

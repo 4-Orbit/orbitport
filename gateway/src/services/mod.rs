@@ -3,3 +3,5 @@ pub mod jrpc;
 pub mod kms;
 pub mod policy;
 pub mod threshold;
+
+pub mod github;

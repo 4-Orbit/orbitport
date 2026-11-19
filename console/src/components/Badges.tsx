@@ -18,6 +18,11 @@ export function ModeBadge({ mode }: { mode: AuditEvent["mode"] }) {
 }
 
 export function KmsResultBadge({ ev }: { ev: AuditEvent }) {
+  if (ev.githubMode) {
+    const result = ev.githubResult;
+    if (!result) return <span className="badge result result-none">{ev.decision === "DENY" ? "BLOCKED" : "OUTCOME PENDING"}</span>;
+    return <span className={`badge result result-${result.status === "SUCCESS" ? "success" : "error"}`}>{ev.githubMode.toUpperCase()} · {result.status}{result.issueNumber ? ` #${result.issueNumber}` : ""}</span>;
+  }
   if (!ev.kmsCalled) return <span className="badge result result-none">—</span>;
   if (ev.kmsResult?.status === "SUCCESS") return <span className="badge result result-success">SUCCESS</span>;
   return <span className="badge result result-error" title={ev.kmsResult?.errorCode}>{`ERROR ${ev.kmsResult?.errorCode ?? ""}`.trim()}</span>;

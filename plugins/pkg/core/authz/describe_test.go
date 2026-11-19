@@ -33,8 +33,8 @@ func TestDescribeSpansAndJSON(t *testing.T) {
 }
 
 func TestDescribeDefaultBundleAndParseError(t *testing.T) {
-	if got := len(Describe(DefaultBundle().Policies)); got != 6 {
-		t.Fatalf("default bundle: want 6 policies, got %d", got)
+	if got := len(Describe(DefaultBundle().Policies)); got != 7 {
+		t.Fatalf("default bundle: want 7 policies, got %d", got)
 	}
 	if Describe("@id(\"x\") permit (") != nil {
 		t.Fatal("unparseable text must describe as nil")

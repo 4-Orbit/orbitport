@@ -184,6 +184,16 @@ export class Runner {
     };
   }
 
+  async createGithubIssue(operatorToken: string, r: GithubIssueRequest): Promise<unknown> {
+    this.takeRateSlot();
+    const agent = await this.agentToken(operatorToken, r.agentId);
+    const out = await callGateway(this.deps.gatewayUrl, agent.token, {
+      method: "github.issue.Create", params: { repository: r.repository, title: r.title, body: r.body },
+    }, this.deps.fetchImpl);
+    if ("error" in out.body) throw new RunError(out.status === 200 ? 502 : out.status, out.body.error.message);
+    return out.body.result;
+  }
+
   private takeRateSlot() {
     const now = this.deps.now();
     this.recent = this.recent.filter((t) => now - t < 60_000);
@@ -239,4 +249,22 @@ interface AuditEvent {
   determiningPolicies: string[];
   policyVersion: number;
   kmsCalled: boolean;
+}
+
+export interface GithubIssueRequest {
+  agentId: string;
+  repository: string;
+  title: string;
+  body: string;
+}
+
+export function parseGithubIssueRequest(v: unknown): GithubIssueRequest | string {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return "expected an issue request";
+  const { agentId, repository, title, body, ...rest } = v as Record<string, unknown>;
+  if (Object.keys(rest).length) return "unknown issue request field";
+  if (typeof agentId !== "string" || !AGENT_ID_RE.test(agentId)) return "choose a registered agent";
+  if (typeof repository !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(repository)) return "choose a repository";
+  if (typeof title !== "string" || !title.trim() || Buffer.byteLength(title) > 256) return "title must be 1–256 bytes";
+  if (typeof body !== "string" || Buffer.byteLength(body) > 60000) return "body must be at most 60000 bytes";
+  return { agentId, repository, title, body };
 }

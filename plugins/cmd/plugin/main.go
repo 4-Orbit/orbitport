@@ -17,6 +17,7 @@ import (
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/auth"
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/authnoop"
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/beacon"
+	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/githubissues"
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/ipfs"
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/jwks"
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/plugin/kms"
@@ -158,6 +159,13 @@ func main() {
 		}
 		proto.RegisterPolicyPluginServer(grpcServer, plugin)
 		logger.Info("Policy plugin ready")
+	case "github":
+		plugin, err := githubissues.NewPlugin()
+		if err != nil {
+			panic(err)
+		}
+		proto.RegisterGithubPluginServer(grpcServer, plugin)
+		logger.Info("GitHub issues plugin ready")
 	case "account":
 		plugin, err := account.NewPlugin()
 		if err != nil {

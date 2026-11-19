@@ -74,8 +74,11 @@ docker-build:
 FOURORBIT_PLUGIN_RUNTIME?=gcr.io/distroless/static-debian13:nonroot
 FOURORBIT_GATEWAY_RUNTIME?=gcr.io/distroless/cc-debian13:nonroot
 FOURORBIT_ENV_FILE?=.4orbit.env
+# Fixed container names mean worktrees must address the same local stack.
+# Respect an explicit Compose project name, otherwise keep it stable.
+FOURORBIT_PROJECT?=$(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),orbitport)
 FOURORBIT_COMPOSE=FOURORBIT_UID=$$(id -u) FOURORBIT_GID=$$(id -g) OPMOCK_PROFILE=${E2E_PROFILE} \
-	${COMPOSE} --env-file .dev.env $(if $(wildcard ${FOURORBIT_ENV_FILE}),--env-file ${FOURORBIT_ENV_FILE}) \
+	${COMPOSE} -p ${FOURORBIT_PROJECT} --env-file .dev.env $(if $(wildcard ${FOURORBIT_ENV_FILE}),--env-file ${FOURORBIT_ENV_FILE}) \
 	-f dev.docker-compose.yaml -f local-pat.compose.yaml -f 4orbit.compose.yaml
 
 4orbit-build:
@@ -87,18 +90,18 @@ FOURORBIT_COMPOSE=FOURORBIT_UID=$$(id -u) FOURORBIT_GID=$$(id -g) OPMOCK_PROFILE
 4orbit-up: 4orbit-build 4orbit
 
 4orbit:
-	@mkdir -p .4orbit/tokens && chmod 700 .4orbit .4orbit/tokens
+	@mkdir -p .4orbit/tokens .4orbit/github && chmod 700 .4orbit .4orbit/tokens .4orbit/github
 	@${FOURORBIT_COMPOSE} up -d --no-build
 
 4orbit-seed:
-	@mkdir -p .4orbit/tokens && chmod 700 .4orbit .4orbit/tokens
+	@mkdir -p .4orbit/tokens .4orbit/github && chmod 700 .4orbit .4orbit/tokens .4orbit/github
 	@${FOURORBIT_COMPOSE} run --rm --no-deps fourorbit-seed
 
 4orbit-ps:
 	@${FOURORBIT_COMPOSE} ps -a
 
 4orbit-logs:
-	@${FOURORBIT_COMPOSE} logs --tail 100 -f gateway plugin-kms plugin-policy console
+	@${FOURORBIT_COMPOSE} logs --tail 100 -f gateway plugin-kms plugin-policy plugin-github console
 
 4orbit-stop:
 	@${FOURORBIT_COMPOSE} stop
@@ -107,7 +110,7 @@ FOURORBIT_COMPOSE=FOURORBIT_UID=$$(id -u) FOURORBIT_GID=$$(id -g) OPMOCK_PROFILE
 	@${FOURORBIT_COMPOSE} down
 
 4orbit-test:
-	@cd plugins && go test ./pkg/core/authz/... ./pkg/plugin/policy/... ./pkg/plugin/kms/... ./pkg/plugin/auth/... ./pkg/plugin/authnoop/... ./pkg/plugin/patissuer/...
+	@cd plugins && go test ./pkg/core/authz/... ./pkg/plugin/githubissues/... ./pkg/plugin/policy/... ./pkg/plugin/kms/... ./pkg/plugin/auth/... ./pkg/plugin/authnoop/... ./pkg/plugin/patissuer/...
 	@cargo test --locked -p gateway --lib --test agent_identity --test agent_delegation_route --test account_filter
 	@cd console && npm test
 

@@ -103,9 +103,9 @@ func TestValidateReportsProblemsAndSummary(t *testing.T) {
 	good := mustCall(t, p, "policy.Validate", map[string]any{"policies": b.Policies, "entities": b.Entities})
 	assert.Equal(t, true, good["ok"])
 	summary := good["summary"].(map[string]any)
-	assert.Len(t, summary["policyIds"], 6)
+	assert.Len(t, summary["policyIds"], 7)
 	described := good["policies"].([]any)
-	require.Len(t, described, 6)
+	require.Len(t, described, 7)
 	first := described[0].(map[string]any)
 	assert.Equal(t, "developer-encrypt-demo-key", first["id"])
 	assert.Equal(t, "permit", first["effect"])
@@ -210,7 +210,7 @@ func TestRunTestsAgainstDraft(t *testing.T) {
 	assert.EqualValues(t, len(authz.DefaultTests()), out["total"])
 
 	empty := mustCall(t, p, "policy.RunTests", map[string]any{"source": map[string]any{"draft": map[string]any{"policies": ""}}})
-	assert.EqualValues(t, 7, empty["failed"], "an empty draft fails exactly the ALLOW cases")
+	assert.EqualValues(t, 8, empty["failed"], "an empty draft fails exactly the ALLOW cases")
 }
 
 func TestPutTestsValidates(t *testing.T) {
@@ -446,4 +446,18 @@ func TestSaveDraftReusesIdenticalVersion(t *testing.T) {
 	assert.EqualValues(t, 2, re["version"], "otherwise the newest identical version")
 	versions := mustCall(t, p, "policy.ListVersions", map[string]any{})["versions"].([]any)
 	assert.Len(t, versions, 3)
+}
+
+func TestGithubOutcomeUpdatesDecisionRow(t *testing.T) {
+	p := newTestPlugin(t)
+	decision := authz.AuditEvent{Tenant: "tenant-a", RequestID: "github-request", Principal: `Agent::"developer-agent"`, Action: authz.AuditUID("Action", "github.issue.Create"), Decision: authz.Allow, Stage: "decision", GithubMode: "mock"}
+	p.audit.add(decision)
+	outcome := decision
+	outcome.Stage = "outcome"
+	outcome.GithubResult = &authz.GithubResult{Status: "SUCCESS", IssueNumber: 1}
+	p.audit.add(outcome)
+	events, _ := p.audit.list("tenant-a", auditFilter{Limit: 10})
+	require.Len(t, events, 1)
+	assert.Equal(t, "outcome", events[0].Stage)
+	assert.EqualValues(t, 1, events[0].GithubResult.IssueNumber)
 }

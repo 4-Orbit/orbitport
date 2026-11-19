@@ -478,6 +478,20 @@ func (a *auditLog) add(ev authz.AuditEvent) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	k := tenantKey(ev.Tenant)
+	// Enforcing GitHub plugins first record a decision, then an outcome.
+	// Keep one row per request in Activity; the optional JSONL retains both.
+	if ev.Stage == "outcome" && ev.Action == authz.AuditUID("Action", "github.issue.Create") {
+		for i := len(a.ring[k]) - 1; i >= 0; i-- {
+			previous := a.ring[k][i].ev
+			if previous.RequestID == ev.RequestID && previous.Action == ev.Action && previous.Stage == "decision" && previous.Principal == ev.Principal {
+				a.ring[k][i].ev = ev
+				if a.dir != "" {
+					appendJSONL(a.dir, k, ev)
+				}
+				return
+			}
+		}
+	}
 	a.seq[k]++
 	list := append(a.ring[k], storedEvent{seq: a.seq[k], ev: ev})
 	if len(list) > a.size {

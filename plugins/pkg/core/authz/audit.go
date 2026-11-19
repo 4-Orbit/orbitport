@@ -11,21 +11,31 @@ import (
 // diagnostic text. The shape follows 4Orbit's prototype-1/src/audit.ts with
 // tenant, policy version and enforcement mode added.
 type AuditEvent struct {
-	Ts                  string     `json:"ts"`
-	RequestID           string     `json:"requestId"`
-	Tenant              string     `json:"tenant"`
-	Principal           string     `json:"principal"`
-	Action              string     `json:"action"`
-	Resource            string     `json:"resource"`
-	Decision            Decision   `json:"decision"`
-	DeterminingPolicies []string   `json:"determiningPolicies"`
-	AuthzErrors         []string   `json:"authzErrors,omitempty"`
-	PolicyVersion       int64      `json:"policyVersion"`
-	Mode                string     `json:"mode"`
-	KmsCalled           bool       `json:"kmsCalled"`
-	KmsOperation        string     `json:"kmsOperation,omitempty"`
-	KmsResult           *KmsResult `json:"kmsResult,omitempty"`
-	JtiHash             string     `json:"jtiHash,omitempty"`
+	Ts                  string        `json:"ts"`
+	RequestID           string        `json:"requestId"`
+	Tenant              string        `json:"tenant"`
+	Principal           string        `json:"principal"`
+	Action              string        `json:"action"`
+	Resource            string        `json:"resource"`
+	Decision            Decision      `json:"decision"`
+	DeterminingPolicies []string      `json:"determiningPolicies"`
+	AuthzErrors         []string      `json:"authzErrors,omitempty"`
+	PolicyVersion       int64         `json:"policyVersion"`
+	Mode                string        `json:"mode"`
+	KmsCalled           bool          `json:"kmsCalled"`
+	KmsOperation        string        `json:"kmsOperation,omitempty"`
+	KmsResult           *KmsResult    `json:"kmsResult,omitempty"`
+	JtiHash             string        `json:"jtiHash,omitempty"`
+	GithubCalled        bool          `json:"githubCalled,omitempty"`
+	GithubMode          string        `json:"githubMode,omitempty"`
+	GithubResult        *GithubResult `json:"githubResult,omitempty"`
+	Stage               string        `json:"stage,omitempty"`
+}
+
+// GithubResult contains stable metadata only, never issue text or provider errors.
+type GithubResult struct {
+	Status      string `json:"status"`
+	IssueNumber int64  `json:"issueNumber,omitempty"`
 }
 
 // KmsResult records whether the backend call succeeded, with a stable error

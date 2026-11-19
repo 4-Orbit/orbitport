@@ -21,10 +21,17 @@ entity KeyNamespace { tenant: String };
 entity KeyStoreKey { tenant: String, name: String };
 entity KeyStoreNamespace { tenant: String, prefix: String };
 entity PolicySet { tenant: String };
+entity Repository { tenant: String, owner: String, name: String };
 
 type TrustedContext = { currentTime: Long };
 
-action "use", "rotate", "read", "admin", "keystore", "policy";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write";
+
+action "github.issue.Create" in ["github.write"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: TrustedContext,
+};
 
 action "kms.Encrypt", "kms.Decrypt", "kms.Sign", "kms.GenerateDataKey", "kms.Encapsulate", "kms.Decapsulate" in ["use"] appliesTo {
   principal: [Account, Agent],

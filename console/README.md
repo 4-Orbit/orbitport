@@ -44,3 +44,9 @@ npm test            # BFF: allowlist, Host check, token never returned, error ma
 npm run typecheck
 npm run build
 ```
+
+## GitHub issues
+
+The **GitHub** tab creates issues through the shared Cedar authorization flow.
+Mock is the default. See [the step-by-step setup](../docs/4orbit/github-issues.md)
+for mock verification, GitHub App configuration, and an explicit real-repository grant.

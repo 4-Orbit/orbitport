@@ -1,6 +1,6 @@
 # Plan: Cedar-governed GitHub agents in the main console
 
-**Status:** proposal for team discussion. Nothing here is built yet.
+**Status:** broader proposal. A first, local-demo issue-creation increment is implemented; see [setup and scope](github-issues.md). It uses a single operator-configured repository and a mounted App key; installation discovery, OpenBao-backed key storage, Access repository axes and later phases remain planned.
 **Written against:** `ucsb-capstone` at `970c9ed`, plus the open `feat/why-denied` PR (denial explanations and "Run it for real").
 
 ## Goal

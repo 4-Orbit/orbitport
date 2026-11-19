@@ -28,6 +28,9 @@ pub mod proto {
         pub mod threshold {
             tonic::include_proto!("thresholdapi");
         }
+        pub mod github {
+            tonic::include_proto!("github");
+        }
         pub mod policy {
             tonic::include_proto!("policy");
         }

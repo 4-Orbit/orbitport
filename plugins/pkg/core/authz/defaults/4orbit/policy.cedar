@@ -52,3 +52,11 @@ permit (
   action == Action::"kms.Encrypt",
   resource == Key::"prod-key"
 );
+
+// Mock repository only. A real repository needs its own explicit grant.
+@id("developer-create-demo-issue")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.issue.Create",
+  resource == Repository::"demo-owner/orbitport-test"
+);
