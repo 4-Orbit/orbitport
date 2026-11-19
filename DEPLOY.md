@@ -1,10 +1,10 @@
 # DEPLOY: Orbitport + 4Orbit on your own machine
 
-This runs the merged stack locally: the Orbitport gateway and plugins, local OpenBao, per-agent Cedar enforcement in the KMS plugin, the policy plugin, and the operator console with the policy playground. Every command below was run on an Apple Silicon Mac (macOS, Docker Desktop, Compose v2) on 2026-11-10.
+This runs the merged stack locally: the Orbitport gateway and plugins, local OpenBao, per-agent Cedar enforcement in the KMS and GitHub plugins, the policy plugin, and the operator console with the policy playground. It was written and tested on an Apple Silicon Mac (macOS, Docker Desktop, Compose v2).
 
 Everything here is **development only**: OpenBao runs in dev mode with the public root token `root`, the account plugin is a noop that maps every token to one tenant (`noop-tenant`), and OpenBao keeps its data in memory. Don't expose these ports to an untrusted network.
 
-What changed and why is in [`TODO.md`](TODO.md) and [`docs/4orbit/`](docs/4orbit/README.md).
+The design is in [`docs/4orbit/README.md`](docs/4orbit/README.md), and what's left to build is in [`docs/4orbit/TODO.md`](docs/4orbit/TODO.md).
 
 ---
 
@@ -17,6 +17,7 @@ What changed and why is in [`TODO.md`](TODO.md) and [`docs/4orbit/`](docs/4orbit
 | `plugin-jwks` | `http://127.0.0.1:8091/.well-known/jwks.json` | PAT public keys |
 | `openbao-proxy` | `http://127.0.0.1:8200` | OpenBao: Transit, KV v2, and the new `orbitport-policy` mount |
 | `plugin-policy` | gRPC `plugin-policy:50009` (internal); metrics on `:9009` | Versioned policy store, validation, simulation, test suites, decision audit |
+| `plugin-github` | internal only | `github.issue.Create`, mock by default ([`docs/4orbit/github.md`](docs/4orbit/github.md)) |
 | `console` | `http://127.0.0.1:4317` | Operator console and policy playground |
 
 The seed step loads the 4Orbit demo organization:
@@ -65,7 +66,7 @@ Give Docker Desktop at least **6 GB of memory**. The first build takes 10–20 m
 mkdir -p ~/cs189 && cd ~/cs189
 git clone https://github.com/4-Orbit/orbitport.git
 cd orbitport
-git checkout 4orbit-migration      # or the branch this work was merged into
+git checkout ucsb-capstone         # the team's integration branch
 ```
 
 Optional: the private OpenBao plugin repos enable Ethereum, PQC and threshold signing. They must be siblings of `orbitport/`:
@@ -99,6 +100,7 @@ cp .4orbit.env.example .4orbit.env      # optional; defaults match this file
 | `ORBITPORT_POLICY_AUDIT_RING` | `2000` | Decisions kept in memory per tenant |
 | `ORBITPORT_CONSOLE_PORT` | `4317` | Console port (bound to `127.0.0.1` only) |
 | `FOURORBIT_RESEED` | `false` | When `true`, the next `make 4orbit-seed` reloads the template as a new version |
+| `ORBITPORT_GITHUB_*` | mock mode | GitHub App settings; see [`docs/4orbit/github.md`](docs/4orbit/github.md) |
 
 ---
 
@@ -175,10 +177,10 @@ $R operator policy.Simulate '{"at":1800000000,"requests":[{"agentId":"developer-
 # "DENY"
 ```
 
-To run all 57 end-to-end checks (enforcement, forged and tampered tokens, audit, playground API including explanations, paging, the test gate, live activation and rollback, agent tokens, and real decisions matching simulated ones):
+To run the end-to-end checks (enforcement, forged and tampered tokens, audit, playground API including explanations, paging, the test gate, live activation and rollback, agent tokens, and real decisions matching simulated ones):
 
 ```sh
-make 4orbit-e2e          # ends with "passed: 57  failed: 0"
+make 4orbit-e2e          # ends with "failed: 0"
 ```
 
 ---
@@ -191,11 +193,13 @@ Open **http://127.0.0.1:4317**. Use `127.0.0.1` or `localhost`; any other Host h
 |---|---|
 | **Activity** | Every KMS decision and policy-admin attempt (polls every 3 s), with filters by agent, decision, action and key. Click a row for the determining policies, whether the KMS was called, enforce or shadow mode, and the policy version; a DENY also says **why** (explained against the version that was enforced). **Replay in simulator** sends that request to the Simulate tab. Requests made by **Run it for real** are marked FROM CONSOLE. |
 | **Access** | Agents × keys × KMS actions for the active version, the editor draft or any saved version, at the current time or a simulated one. Click a cell to see why; a DENY cell is explained. |
-| **Policies** | A Cedar editor with highlighting and server-side validation as you type (the same engine as enforcement, with errors placed at their line). Also: an agents-and-roles editor, snippets, **What changes vs active?** (the decision diff), **Save as new version**, and the read-only platform policy. |
+| **Policies** | Rules in **Plain language** (a rule form for KMS and GitHub rules) or as **Cedar code** (highlighting and validation as you type, by the same engine as enforcement). Also: an agents-and-roles editor, snippets, **What changes vs active?** (the decision diff), **Save as new version** or **Save and activate** (the test gate still applies), undo, and the read-only platform policy. |
 | **Simulate** | Ask Cedar about any principal, action, resource, key tags, source and time. Results show a SIMULATED TIME badge when you time-travel. A DENY says **why** (blocked, expired, the closest rule and what it needs, or no rule), with **Grant this…**, which prepares the fix in your draft. **Run it for real** sends the same request to the KMS as that agent (sample data, a token the console mints and never shows; only actions that don't change a key) and shows the real decision beside the simulated one. **Save as test case** adds the result to the test suite. |
 | **Tests** | The tenant's saved expectations. Run them against the draft, the active version or any saved version; add or remove cases and save the suite. |
 | **Versions** | The version list, a decision diff and text diff against the active version, **Activate** (refused while any test fails, showing which cases fail, with an explicit *Activate anyway* step), **Roll back**, and **Open in editor**. |
 | **Agents** | Registered agents and their roles. **Mint token** issues a short-lived agent PAT, shown once, with a ready-to-paste `kms-mcp` config. |
+| **GitHub** | Check the active policy for an agent and repository, then create an issue as that agent (mock by default). See [`docs/4orbit/github.md`](docs/4orbit/github.md). |
+| **Help** | What each page is for, and a glossary. Glossary terms elsewhere in the console explain themselves on hover or keyboard focus. |
 
 A five-minute walkthrough:
 
@@ -249,13 +253,13 @@ Ask the agent to encrypt with `kms:dev-key` (allowed) and then to rotate it (den
 
 ## 9. Tests
 
-| What | Command | Needs the stack? | Result on 2026-11-10 |
+| What | Command | Needs the stack? | Expected |
 |---|---|---|---|
 | All Go and Rust unit tests | `make test` | no | pass |
 | 4Orbit unit tests (Go engine, KMS, policy, auth, patissuer; Rust gateway; console) | `make 4orbit-test` | no | pass |
 | Lint | `make lint` (`golangci-lint` + `clippy -D warnings`) | no | 0 issues |
 | Console typecheck and build | `cd console && npm run typecheck && npm run build` | no | pass |
-| 4Orbit end-to-end | `make 4orbit-e2e` | 4Orbit stack | 57/57 on a freshly seeded stack (the Matrix checks expect the default template) |
+| 4Orbit end-to-end | `make 4orbit-e2e` | 4Orbit stack | all pass on a freshly seeded stack (the Matrix checks expect the default template) |
 | Console browser loop (DENY → why → Grant this → activate → real ALLOW; restores the active version) | `cd console && npm run e2e:browser` (`CONSOLE_URL` for a console other than :4317) | 4Orbit stack and console | pass |
 | Original gateway e2e | `make devenv && make e2e-all` | plain dev stack (`authnoop`) | all pass except `kms_ethereum_create_key_and_sign` and `threshold_coordinate_dkg`, which need the private OpenBao plugins (§2) |
 | Original beacon e2e | `make go-e2e` | plain dev stack | pass |

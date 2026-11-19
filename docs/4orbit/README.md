@@ -2,7 +2,16 @@
 
 4Orbit (UCSB CMPSC 189A capstone) is an authorization layer that lets AI agents use SpaceComputer KMS capabilities based on who the agent is and what it wants, with Cedar making every decision. Its first prototype (`4-Orbit/4orbit`, `prototype-1/` and `web/`) was a TypeScript gate running *in front of* Orbitport: it shared one PAT, took agent IDs on the caller's word, and could be bypassed by anyone holding that PAT.
 
-This fork moves that layer **into** Orbitport. Running it is covered in [`DEPLOY.md`](../../DEPLOY.md), and the remaining work in [`TODO.md`](../../TODO.md).
+This fork moves that layer **into** Orbitport, and extends it from KMS to GitHub.
+
+| Doc | What's in it |
+|---|---|
+| [`DEPLOY.md`](../../DEPLOY.md) | Run, use and test the stack locally |
+| This file | Architecture, authorization model, decisions, threat model |
+| [`TODO.md`](TODO.md) | What's built, and the remaining work in order |
+| [`github.md`](github.md) | GitHub issue creation: setup, request flow, and the design for what's next |
+| [`docs/ucsb-capstone-agent-delegation.md`](../ucsb-capstone-agent-delegation.md) | The delegated-credential store in the gateway |
+| [`console/README.md`](../../console/README.md), [`plugins/pkg/plugin/policy/README.md`](../../plugins/pkg/plugin/policy/README.md) | Console development; the `policy.*` API |
 
 ---
 
@@ -46,6 +55,7 @@ This fork moves that layer **into** Orbitport. Running it is covered in [`DEPLOY
 | Agent identity | `patissuer` (`agent_id` claim), `auth` (verifies it), `gateway/src/caller.rs` (forwards it) | `authnoop` accepts the bearer `agent:<id>` for local tests |
 | Gateway methods | `gateway/src/services/policy.rs` | `policy.*` allowlist, `policy.ListKeys` (KMS plugin), `policy.IssueAgentToken` (policy plugin approves, patissuer mints) |
 | Seed | `plugins/cmd/fourorbit-seed/` | Operator PAT, demo keys, template v1 with its tests, agent PATs |
+| GitHub enforcement | `plugins/pkg/plugin/githubissues/` (`plugin-github`), `gateway/src/services/github.rs` | `github.issue.Create`, same engine and audit as KMS; see [`github.md`](github.md) |
 | Console | `console/` | Port of 4Orbit GUI v1 plus the playground |
 
 ---
@@ -62,6 +72,7 @@ This fork moves that layer **into** Orbitport. Running it is covered in [`DEPLOY
 | `Key::"<alias>"` | KMS key metadata. Cedar sees the alias (D-017), never `tenant_…` backend names | `tenant`, `scheme`, `keySpec`, `keyUsage`; the key's `Tags` as Cedar entity tags |
 | `KeyStoreKey`, `KeyStoreNamespace` | Key-store name or prefix | `tenant`, `name` or `prefix` |
 | `KeyNamespace::"keys"` | `kms.ListKeys` | `tenant` |
+| `Repository::"<owner>/<name>"` | `plugin-github`'s configured registry, never the request | `tenant`, `owner`, `name` |
 | `PolicySet::"active"` | `policy.*` methods | `tenant` |
 
 A tenant's entity store may declare only `Role` and `Agent` entities, with no attributes, and agents may only have `Role` parents. Keys always come from the KMS, so a policy author can't invent key attributes.
@@ -78,6 +89,7 @@ Actions are the RPC method names, grouped under 4Orbit's vocabulary (this replac
 | `admin` | `kms.CreateKey` |
 | `keystore` | `kms_keystore.Put`, `Get`, `List`, `Delete` |
 | `policy` | `policy.Read`, `policy.Write`, `policy.Activate`, `policy.Simulate`, `policy.IssueAgentToken` |
+| `github.write` | `github.issue.Create` |
 
 A policy can name an exact action (`action == Action::"kms.Encrypt"`) or a group (`action in Action::"use"`). The 4Orbit template uses exact actions to keep Prototype 1's semantics, in which `use` meant only encrypt.
 
@@ -118,7 +130,7 @@ A missing or foreign key is evaluated with empty attributes, so an unauthorized 
 
 ### Audit
 
-There's one event per decision: from the KMS plugin for every KMS RPC, and from the policy plugin for policy-admin attempts and writes. The fields are `ts`, `requestId`, `tenant`, `principal`, `action`, `resource`, `decision`, `determiningPolicies`, `authzErrors` (only the `AUTHORIZATION_ERROR` marker), `policyVersion`, `mode`, `kmsCalled`, `kmsOperation`, `kmsResult` (status and gRPC code only) and `jtiHash`. Events never contain plaintext, ciphertext, tokens, raw backend errors or Cedar diagnostics; the e2e suite checks this. The KMS plugin ships events in 250 ms batches from a bounded queue, logging locally if the policy plugin is unreachable. The policy plugin keeps the newest N events per tenant, and can also append JSONL (`ORBITPORT_POLICY_AUDIT_DIR`).
+There's one event per decision: from the KMS plugin for every KMS RPC, from `plugin-github` for every GitHub request (recorded synchronously, before GitHub is called), and from the policy plugin for policy-admin attempts and writes. The fields are `ts`, `requestId`, `tenant`, `principal`, `action`, `resource`, `decision`, `determiningPolicies`, `authzErrors` (only the `AUTHORIZATION_ERROR` marker), `policyVersion`, `mode`, `kmsCalled`, `kmsOperation`, `kmsResult` (status and gRPC code only) and `jtiHash`. Events never contain plaintext, ciphertext, tokens, raw backend errors or Cedar diagnostics; the e2e suite checks this. The KMS plugin ships events in 250 ms batches from a bounded queue, logging locally if the policy plugin is unreachable. The policy plugin keeps the newest N events per tenant, and can also append JSONL (`ORBITPORT_POLICY_AUDIT_DIR`).
 
 ### Enforcement modes
 
@@ -141,6 +153,7 @@ There's one event per decision: from the KMS plugin for every KMS RPC, and from 
 | D-031 | Policy administration is authorized against the platform policy only. | — |
 | D-032 | The existing key-store Cedar authorizer (`ORBITPORT_KMS_KEY_STORE_CEDAR_POLICY_PATH`) stays as a second, operator-level layer after the agent check, so its behavior and tests are unchanged. | — |
 | D-033 | Local images build on public `gcr.io/distroless/*-debian13:nonroot` runtimes through a `RUNTIME_IMAGE` build argument. Upstream defaults still point at `dhi.io`. | — |
+| D-034 | GitHub is a second enforced service in its own `plugin-github`, using the same engine, policy versions and audit. It reads the active policy without a stale cache, audits before any GitHub call, and fails closed if audit is down. | — |
 
 ---
 
@@ -155,8 +168,10 @@ There's one event per decision: from the KMS plugin for every KMS RPC, and from 
 
 **New or remaining:**
 - **The operator PAT sits in the console's BFF**, giving full owner rights. Mitigations: loopback bind, Host check, method allowlist, mode-600 file, a 12 h lifetime, and redaction in error paths.
-- **An account PAT given to an agent** skips agent policies by design (D-030). Never give an agent an account PAT. A tenant setting that requires `agent_id` for KMS use is listed in TODO.md.
+- **An account PAT given to an agent** skips agent policies by design (D-030). Never give an agent an account PAT. A tenant setting that requires `agent_id` for KMS use is in [`TODO.md`](TODO.md) (Phase 3).
 - **Revocation of agent PATs** is expiry-only locally (`accountnoop` doesn't check `jti`). On the real dashboard path, Hold checks `jti`, but agent PATs minted through `policy.IssueAgentToken` have no dashboard row yet (open question 2).
+- **The console has no sign-in.** Anyone who can reach `127.0.0.1:4317` acts as the operator (TODO Phase 2).
+- **The GitHub App key is a mounted file** (`.4orbit/github/app.pem`), fine locally only (TODO Phase 5).
 - **Audit is best-effort and in memory.** Events can be dropped if the queue overflows, or lost on restart unless `ORBITPORT_POLICY_AUDIT_DIR` is set.
 - **Trusted clock.** Time-limited grants trust the KMS pod's clock.
 - **`authnoop`'s `agent:<id>` convention** exists only in the development plugin, which already accepts every token. The real auth plugin rejects it (the e2e checks this).
@@ -166,4 +181,4 @@ There's one event per decision: from the KMS plugin for every KMS RPC, and from 
 
 ## 5. Relation to the delegated-credential store
 
-`gateway/src/agent_delegation.rs` (PR #1) issues opaque, process-local credentials scoped to one `(account, agent, action, resource)` for external-service actions such as `github:create-issue`. It is unchanged. Agent PATs are the identity used for KMS calls; delegated credentials narrow a single external action further. Wiring a delegated-credential operation route through `authz.Evaluate` is listed in TODO.md.
+`gateway/src/agent_delegation.rs` issues opaque, process-local credentials scoped to one `(account, agent, action, resource)`, described in [`docs/ucsb-capstone-agent-delegation.md`](../ucsb-capstone-agent-delegation.md). Agent PATs are the identity both `plugin-kms` and `plugin-github` enforce; no route uses delegated credentials yet. Wiring one through `authz.Evaluate`, or retiring the store, is in [`TODO.md`](TODO.md) (Phase 5).
