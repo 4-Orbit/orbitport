@@ -379,6 +379,18 @@ export function suggestId(rule: Omit<Rule, "id">, taken: Set<string>): string {
   return id;
 }
 
+/**
+ * When an edited rule kept a name the builder had suggested for it, but the
+ * rule now says something else: the name that would be suggested now.
+ * Null when the name was chosen by hand or still fits.
+ */
+export function outdatedSuggestedName(initial: Rule, current: Omit<Rule, "id">, taken: Set<string>): string | null {
+  const { id, ...before } = initial;
+  if (suggestId(before, taken) !== id) return null;
+  const now = suggestId(current, taken);
+  return now === id ? null : now;
+}
+
 /** Replaces [start, end) of the source with `replacement`. */
 export function replaceSpan(source: string, start: number, end: number, replacement: string): string {
   return source.slice(0, start) + replacement + source.slice(end);

@@ -21,9 +21,9 @@ async function rpc<T>(request: APIRequestContext, method: string, params: Record
 async function simulate(page: Page, action: string) {
   await page.goto("/#/simulate");
   await page.getByLabel("Evaluate against").selectOption("active");
-  await page.getByLabel("Principal (agent id; empty = account)").fill("developer-agent");
+  await page.getByLabel("Principal", { exact: true }).selectOption("developer-agent");
   await page.getByLabel("Action").selectOption(action);
-  await page.getByLabel("Resource (Key)").fill("dev-key");
+  await page.getByLabel("Resource (key)", { exact: true }).selectOption("dev-key");
   await page.getByRole("button", { name: "Evaluate", exact: true }).click();
 }
 

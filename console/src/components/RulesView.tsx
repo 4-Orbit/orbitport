@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api.ts";
 import { appendPolicy, fromPolicyJson, removeSpan, replaceSpan, toCedar, type Rule } from "../rules.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { KeyInfo, ValidateResult } from "../types.ts";
 import type { GrantRequest } from "../explain.ts";
 import { RuleCard } from "./RuleCard.tsx";
 import { RuleBuilder } from "./RuleBuilder.tsx";
+import { useRepositories } from "../pages/shared.ts";
 
 interface Props {
   validation: ValidateResult | null;
@@ -30,13 +30,9 @@ type Editing = { kind: "new"; prefill?: Omit<Rule, "id"> } | { kind: "edit"; ind
 /** The plain-language view of the draft's policies, with the rule builder. */
 export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged, grant = null, onGrantHandled }: Props) {
   const draft = useDraft();
-  const [repositories, setRepositories] = useState<string[]>([]);
-  const [repositoryError, setRepositoryError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    api.githubRepositories().then((r) => { if (!cancelled) setRepositories(r.repositories); }).catch((e: Error) => { if (!cancelled) setRepositoryError(e.message); });
-    return () => { cancelled = true; };
-  }, []);
+  const repos = useRepositories();
+  const repositories = repos.data ?? [];
+  const repositoryError = repos.error;
   // Edits use the validated spans, so they wait until validation catches up.
   const stale = validatedText !== draft.policies;
   const [editing, setEditing] = useState<Editing>(null);

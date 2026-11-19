@@ -10,7 +10,9 @@ import { ConsoleRunBadge, DecisionBadge, KmsCalledBadge, KmsResultBadge, ModeBad
 import { SummaryStrip } from "../components/SummaryStrip.tsx";
 import { formatTime } from "../format.ts";
 import { ExplanationView, LiveExplanation } from "../components/Explanation.tsx";
-import { useKeys } from "./shared.ts";
+import { useKeys, useKnownAgents } from "./shared.ts";
+import { EntityPicker } from "../components/EntityPicker.tsx";
+import { splitAgents } from "../resource-fields.ts";
 
 /** `Agent::"developer-agent"` -> developer-agent */
 export const uidId = (uid: string) => /::"(.*)"$/.exec(uid)?.[1] ?? uid;
@@ -77,6 +79,15 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
   }, [newestId]);
   const fromConsole = (ev: AuditEvent) => !!ev.jtiHash && consoleRuns.has(ev.jtiHash);
   const principals = new Set(events.map((e) => e.principal)).size;
+  // Agents seen in any page loaded so far; only grows, so filtering by one
+  // agent doesn't drop the others from the filter menu.
+  const [seenAgents, setSeenAgents] = useState<Set<string>>(new Set());
+  const eventAgents = events.filter((e) => uidType(e.principal) === "Agent").map((e) => uidId(e.principal));
+  const eventAgentsKey = [...new Set(eventAgents)].sort().join("\n");
+  useEffect(() => {
+    setSeenAgents((cur) => (eventAgents.every((a) => cur.has(a)) ? cur : new Set([...cur, ...eventAgents])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventAgentsKey]);
 
   return (
     <>
@@ -85,7 +96,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
       </Intro>
       {audit.error && <div className="banner banner-error inline-banner">Could not load audit: {audit.error}</div>}
       {audit.data && <SummaryStrip summary={audit.data.summary} agents={principals} />}
-      <Filters filter={filter} onChange={setFilter} />
+      <Filters filter={filter} onChange={setFilter} seenAgents={seenAgents} />
       {audit.data && events.length === 0 && (
         <section className="panel empty-state">
           <h2>No decisions match</h2>
@@ -173,7 +184,9 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
   );
 }
 
-function Filters({ filter, onChange }: { filter: AuditFilter; onChange: (f: AuditFilter) => void }) {
+function Filters({ filter, onChange, seenAgents }: { filter: AuditFilter; onChange: (f: AuditFilter) => void; seenAgents: Set<string> }) {
+  const known = useKnownAgents();
+  const { registered, removed } = splitAgents(known.registered ?? [], [...known.declared, ...seenAgents]);
   return (
     <section className="panel filters">
       <div className="segmented" role="group" aria-label="Filter by decision">
@@ -183,10 +196,21 @@ function Filters({ filter, onChange }: { filter: AuditFilter; onChange: (f: Audi
           </button>
         ))}
       </div>
-      <label className="field inline">
-        <span>Agent</span>
-        <input value={filter.agentId ?? ""} placeholder="any" onChange={(e) => onChange({ ...filter, agentId: e.target.value.trim() })} />
-      </label>
+      <EntityPicker
+        inline
+        label="Agent"
+        value={filter.agentId ?? ""}
+        onChange={(agentId) => onChange({ ...filter, agentId })}
+        groups={[
+          { label: "Registered (active version)", options: registered },
+          { label: "No longer registered", options: removed },
+        ]}
+        loading={known.registered === null && !known.error}
+        error={known.error}
+        emptyLabel="Any agent"
+        allowOther
+        placeholder="agent id"
+      />
       <label className="field inline">
         <span>Action</span>
         <input value={filter.action ?? ""} placeholder="e.g. kms.Encrypt" onChange={(e) => onChange({ ...filter, action: e.target.value.trim() })} />

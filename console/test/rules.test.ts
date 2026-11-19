@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { appendPolicy, describe, fromPolicyJson, isExpired, removeSpan, replaceSpan, sentenceText, suggestId, toCedar, validRuleId, type Rule } from "../src/rules.ts";
+import { appendPolicy, describe, fromPolicyJson, isExpired, outdatedSuggestedName, removeSpan, replaceSpan, sentenceText, suggestId, toCedar, validRuleId, type Rule } from "../src/rules.ts";
 
 interface Fixture {
   name: string;
@@ -86,4 +86,16 @@ test("GitHub rules name repositories and reject broad or incompatible scopes", (
   const unsupported = structuredClone(fixture.json) as { action: unknown };
   unsupported.action = { op: "==", entity: { type: "Action", id: "github.issue.Close" } };
   assert.equal(fromPolicyJson(unsupported), null, "unsupported actions stay custom");
+});
+
+test("an edited rule with a suggested name says when the name no longer fits", () => {
+  const before: Omit<Rule, "id"> = { effect: "permit", who: { kind: "agent", id: "test-agent" }, can: ["kms.Encrypt", "kms.Decrypt"], on: { kind: "keys", ids: ["demo-key"] } };
+  const initial: Rule = { ...before, id: suggestId(before, new Set()) };
+  assert.equal(initial.id, "test-agent-multi-demo-key");
+  const github: Omit<Rule, "id"> = { ...before, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["octo/repo"] } };
+  assert.equal(outdatedSuggestedName(initial, github, new Set()), "test-agent-github.issue.create-octo-repo");
+  // Unchanged rule: the name still fits.
+  assert.equal(outdatedSuggestedName(initial, before, new Set()), null);
+  // A hand-picked name is never second-guessed.
+  assert.equal(outdatedSuggestedName({ ...initial, id: "github-builder-check" }, github, new Set()), null);
 });
