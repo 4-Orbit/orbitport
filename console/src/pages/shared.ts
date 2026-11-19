@@ -59,17 +59,23 @@ export function useSchema(): SchemaInfo | null {
  */
 export function useVersionState(refreshKey = 0): { active: number | null; versions: VersionInfo[]; loaded: boolean } {
   const [state, setState] = useState<{ active: number | null; versions: VersionInfo[]; loaded: boolean }>({ active: null, versions: [], loaded: false });
+  // A failed load is retried rather than shown as "no active version".
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    let again: ReturnType<typeof setTimeout> | undefined;
     Promise.all([api.active(), api.versions()])
       .then(([a, r]) => {
         if (!cancelled) setState({ versions: r.versions, active: a.version?.version ?? null, loaded: true });
       })
-      .catch(() => !cancelled && setState((s) => ({ ...s, loaded: true })));
+      .catch(() => {
+        if (!cancelled) again = setTimeout(() => setRetry((n) => n + 1), 4000);
+      });
     return () => {
       cancelled = true;
+      clearTimeout(again);
     };
-  }, [refreshKey]);
+  }, [refreshKey, retry]);
   return state;
 }
 
@@ -94,10 +100,22 @@ export function useRepositories(): ListState<string> & { mode: "mock" | "real" |
   return state;
 }
 
+/**
+ * Entities of saved versions. Versions never change once saved, so each is
+ * fetched at most once per session (the gateway rate-limits each token).
+ */
+const savedEntities = new Map<number, Promise<EntityJson[]>>();
+
 /** The entities of a saved version, or of the active one (null = active). */
 async function versionEntities(version: number | null): Promise<EntityJson[]> {
   if (version === null) return (await api.active()).version?.entities ?? [];
-  return (await api.version(version)).version.entities;
+  let p = savedEntities.get(version);
+  if (!p) {
+    p = api.version(version).then((r) => r.version.entities);
+    savedEntities.set(version, p);
+    p.catch(() => savedEntities.delete(version));
+  }
+  return p;
 }
 
 /**
@@ -122,7 +140,7 @@ export function useSourceAgents(choice: SourceChoice, draft: ReturnType<typeof u
 }
 
 /** Versions searched for agents the active version no longer registers. */
-export const REMOVED_AGENT_VERSIONS = 20;
+export const REMOVED_AGENT_VERSIONS = 10;
 
 /**
  * Agents the active version registers, and agents declared by any of the
@@ -138,7 +156,12 @@ export function useKnownAgents(): { registered: string[] | null; declared: strin
       if (!cancelled) setState({ registered, declared: [], error: null });
       // Older versions only add removed agents; a failure there is not fatal.
       const { versions } = await api.versions("", REMOVED_AGENT_VERSIONS).catch(() => ({ versions: [] as VersionInfo[] }));
-      const all = await Promise.all(versions.map((v) => versionEntities(v.version).catch(() => [] as EntityJson[])));
+      // One at a time: a burst of requests counts against the gateway's rate limit at once.
+      const all: EntityJson[][] = [];
+      for (const v of versions) {
+        if (cancelled) return;
+        all.push(await versionEntities(v.version).catch(() => [] as EntityJson[]));
+      }
       if (!cancelled) setState({ registered, declared: [...new Set(all.flatMap((e) => entityIds(e, "Agent")))], error: null });
     })().catch((e: Error) => !cancelled && setState({ registered: null, declared: [], error: e.message }));
     return () => {

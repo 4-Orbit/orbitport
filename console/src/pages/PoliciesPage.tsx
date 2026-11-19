@@ -131,16 +131,26 @@ export function PoliciesPage({ onActivated }: { onActivated?: () => void } = {})
 
   // Debounced live validation with the enforcement engine. The result keeps
   // the exact text it describes, because rule cards edit by text position.
+  // A failed request is not a verdict on the draft: it has no `policies`
+  // (unlike a parse error's null) and is retried.
+  const [validateRetry, setValidateRetry] = useState(0);
   useEffect(() => {
     const text = draft.policies;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const t = setTimeout(() => {
       api
         .validate(draft.bundle)
         .then((result) => setChecked({ text, result }))
-        .catch((e: Error) => setChecked({ text, result: { ok: false, problems: [{ severity: "error", message: e.message }] } }));
+        .catch((e: Error) => {
+          setChecked({ text, result: { ok: false, problems: [{ severity: "error", message: `Couldn't check the draft: ${e.message}` }] } });
+          retry = setTimeout(() => setValidateRetry((n) => n + 1), 4000);
+        });
     }, 350);
-    return () => clearTimeout(t);
-  }, [draft.bundle, draft.policies]);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(retry);
+    };
+  }, [draft.bundle, draft.policies, validateRetry]);
 
   // How many decisions the draft changes vs the active version (status strip).
   useEffect(() => {
@@ -342,6 +352,7 @@ export function PoliciesPage({ onActivated }: { onActivated?: () => void } = {})
         active={versionState.active}
         known={versionState.loaded}
         valid={validation?.ok ?? true}
+        checkFailed={validation !== null && validation.policies === undefined}
         empty={draft.policies.trim() === "" && draft.entities.length === 0}
         changes={decisionChanges}
       />
