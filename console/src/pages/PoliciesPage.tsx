@@ -4,9 +4,10 @@ import { ConfirmButton, ConfirmDialog, Toast, type ToastState } from "../compone
 import { removePolicies, rulesNamingAgent } from "../agent-removal.ts";
 import { DraftStatus } from "../components/DraftStatus.tsx";
 import { Intro, Term } from "../components/Help.tsx";
-import { api } from "../api.ts";
+import { api, keyResources } from "../api.ts";
+import { changeSummary, decisionChanges, issueRequests } from "../activation-preview.ts";
 import { entityIds, rolesOf, useDraft } from "../draft.tsx";
-import type { CellChange, EntityJson, PolicyInfo, TestCase, ValidateResult } from "../types.ts";
+import type { Bundle, CellChange, EntityJson, KeyInfo, PolicyInfo, TestCase, TestReport, ValidateResult } from "../types.ts";
 import { appendSnippet, CedarEditor } from "../components/CedarEditor.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { useKeys, useSchema, useVersionState } from "./shared.ts";
@@ -67,7 +68,7 @@ permit (principal == Agent::"security-agent", action == Action::"kms.RotateKey",
   },
 ];
 
-export function PoliciesPage() {
+export function PoliciesPage({ onActivated }: { onActivated?: () => void } = {}) {
   const draft = useDraft();
   const schema = useSchema();
   const keys = useKeys();
@@ -98,6 +99,7 @@ export function PoliciesPage() {
   const [changes, setChanges] = useState<CellChange[] | null>(null);
   const [showPlatform, setShowPlatform] = useState(false);
   const [entitiesJson, setEntitiesJson] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   // First visit with an empty draft: start from the active version.
   // `started` turns true once the draft is the one to edit, so a queued
@@ -244,6 +246,34 @@ export function PoliciesPage() {
     }
   }
 
+  /** Saves the draft (or reuses an identical version) and activates it. Tests still gate activation. */
+  async function saveAndActivate(previous: number | null) {
+    const r = await api.saveDraft(draft.bundle, message.trim());
+    draft.markSaved(r.version);
+    setVersionsTick((x) => x + 1);
+    setMessage("");
+    const saved = r.duplicate ? `Your draft is identical to version ${r.version}, so no copy was saved` : `Saved as version ${r.version}`;
+    if (r.version === previous) {
+      setStatus({ tone: "ok", text: `${saved}, which is already active. Nothing changed.` });
+      return;
+    }
+    const result = await api.activate(r.version);
+    if (!result.activated) {
+      const failed = result.tests.results.filter((t) => !t.pass).length;
+      setStatus({
+        tone: "error",
+        text: `${saved}, but it was not activated: ${failed} of ${result.tests.total} tests fail${result.reason ? ` (${result.reason})` : ""}. The previous version stays active.`,
+        actions: [{ label: `Review v${r.version} on Versions`, run: async () => void (window.location.hash = "#/versions") }],
+      });
+      return;
+    }
+    onActivated?.();
+    setStatus({
+      tone: "ok",
+      text: `${saved} and activated it: ${result.tests.passed}/${result.tests.total} tests passed. The KMS enforces it within about 5 seconds.${previous !== null ? ` To undo, restore v${previous} on Versions.` : ""}`,
+    });
+  }
+
   async function diffAgainstActive() {
     try {
       const r = await api.diff(undefined, { draft: draft.bundle });
@@ -260,7 +290,7 @@ export function PoliciesPage() {
     <div className="policies-page">
       <Intro page="policies" title="Policies: edit your draft">
         Changes here go into your <Term k="draft" />, which only you see and which isn't enforced. <strong>Save as new version</strong> keeps a permanent copy;
-        nothing changes for agents until you <Term k="activate">activate</Term> a version on the Versions page. Write <Term k="rule">rules</Term> as plain-language forms or as
+        nothing changes for agents until you <Term k="activate">activate</Term> a version, on the Versions page or with <strong>Save and activate</strong>. Write <Term k="rule">rules</Term> as plain-language forms or as
         Cedar code; both edit the same draft.
       </Intro>
       <section className="panel toolbar">
@@ -410,10 +440,33 @@ export function PoliciesPage() {
                 <button type="button" className="button primary" disabled={errors.length > 0 || !validation?.ok} onClick={() => void save()} title="Creates a permanent version. Doesn't change what's enforced.">
                   Save as new version
                 </button>
+                <button type="button" className="button" disabled={errors.length > 0 || !validation?.ok} onClick={() => setActivating(true)} title="Saves a version and enforces it now, after showing what changes. Tests still gate activation.">
+                  Save and activate…
+                </button>
                 <button type="button" className="button" disabled={!validation?.ok} onClick={() => void diffAgainstActive()}>
                   What changes vs active?
                 </button>
               </div>
+              {activating && (
+                <SaveActivateDialog
+                  bundle={draft.bundle}
+                  keys={keys.data ?? []}
+                  onCancel={() => setActivating(false)}
+                  onSaveOnly={async () => {
+                    setActivating(false);
+                    await save();
+                  }}
+                  onActivate={async (previous) => {
+                    try {
+                      await saveAndActivate(previous);
+                    } catch (e) {
+                      setStatus({ tone: "error", text: (e as Error).message });
+                    } finally {
+                      setActivating(false);
+                    }
+                  }}
+                />
+              )}
               {changes && <ChangeList changes={changes} />}
             </div>
           </section>
@@ -466,11 +519,13 @@ function Problems({ validation }: { validation: ValidateResult | null }) {
   );
 }
 
-function ChangeList({ changes }: { changes: CellChange[] }) {
-  if (changes.length === 0) return <p className="muted small">No decision changes for any registered agent, key and KMS action.</p>;
+function ChangeList({ changes, limit, empty = "No decision changes for any registered agent, key and KMS action." }: { changes: CellChange[]; limit?: number; empty?: string }) {
+  if (changes.length === 0) return <p className="muted small">{empty}</p>;
+  const shown = limit ? changes.slice(0, limit) : changes;
   return (
     <ul className="changes">
-      {changes.map((c, i) => (
+      {changes.length > shown.length && <li className="muted small">showing {shown.length} of {changes.length}</li>}
+      {shown.map((c, i) => (
         <li key={i}>
           <span className="mono">{c.principal}</span> · <span className="mono">{c.action}</span> · <span className="mono">{c.resource}</span>: <DecisionBadge decision={c.before} /> → <DecisionBadge decision={c.after} />{" "}
           {c.after === "ALLOW" && <PolicyChips ids={c.afterPolicies} />}
@@ -749,6 +804,136 @@ function DeleteAgentDialog({ agentId, checked, policies, onDelete, onCancel }: {
       )}
       {ready && n === 0 && mentions.length === 0 && <p>No rules name this agent.</p>}
       <p className="muted small">Changes your draft only, as one undo step. Nothing is enforced until you save and activate a version.</p>
+    </ConfirmDialog>
+  );
+}
+
+interface ActivationPreview {
+  /** The version enforced now (null = none). */
+  active: number | null;
+  kms: CellChange[];
+  /** Issue creation per agent and configured repository; null if GitHub is unavailable. */
+  github: CellChange[] | null;
+  githubMode: "mock" | "real" | null;
+  tests: TestReport;
+}
+
+/** Everything the confirmation shows, worked out against the draft without saving it. */
+async function previewActivation(bundle: Bundle, keys: KeyInfo[]): Promise<ActivationPreview> {
+  const draftSource = { draft: bundle };
+  const active = await api.active();
+  const [kms, tests, repos] = await Promise.all([
+    active.version ? api.diff(undefined, draftSource, keyResources(keys)).then((d) => d.changes) : Promise.resolve([] as CellChange[]),
+    api.runTests(draftSource),
+    api.githubRepositories().catch(() => null),
+  ]);
+  let github: CellChange[] | null = null;
+  if (repos) {
+    const agents = [...entityIds(active.version?.entities ?? [], "Agent"), ...entityIds(bundle.entities, "Agent")];
+    const requests = issueRequests(agents, repos.repositories);
+    github = [];
+    if (requests.length) {
+      const after = await api.simulate(requests, draftSource);
+      const before = active.version ? (await api.simulate(requests)).results : requests.map(() => ({ decision: "DENY" as const }));
+      github = decisionChanges(requests, before, after.results);
+    }
+  }
+  return { active: active.version?.version ?? null, kms, github, githubMode: repos?.mode ?? null, tests };
+}
+
+/**
+ * Confirms "Save and activate": what changes against the active version, and
+ * whether the tests pass, before anything is saved or enforced. Failing
+ * tests leave only "Save without activating"; forcing stays on Versions.
+ */
+function SaveActivateDialog({ bundle, keys, onCancel, onSaveOnly, onActivate }: {
+  bundle: Bundle;
+  keys: KeyInfo[];
+  onCancel: () => void;
+  onSaveOnly: () => Promise<void>;
+  onActivate: (previous: number | null) => Promise<void>;
+}) {
+  const [preview, setPreview] = useState<ActivationPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    previewActivation(bundle, keys)
+      .then((p) => !cancelled && setPreview(p))
+      .catch((e: Error) => !cancelled && setError(e.message));
+    return () => {
+      cancelled = true;
+    };
+    // The draft is fixed while the dialog is open (the page behind it is inert).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = (f: () => Promise<void>) => () => {
+    setBusy(true);
+    void f().finally(() => setBusy(false));
+  };
+  const failing = preview ? preview.tests.results.filter((t) => !t.pass) : [];
+  const actions = !preview
+    ? [{ label: error ? "Couldn't check the draft" : "Checking what changes…", onClick: () => undefined, disabled: true }]
+    : failing.length > 0
+      ? [{ label: "Save without activating", onClick: run(onSaveOnly), disabled: busy }]
+      : [
+          { label: busy ? "Activating…" : "Save and activate", tone: "danger" as const, onClick: run(() => onActivate(preview.active)), disabled: busy },
+          { label: "Save only", onClick: run(onSaveOnly), disabled: busy },
+        ];
+  const kmsSummary = preview ? changeSummary(preview.kms) : "";
+  const githubSummary = preview?.github ? changeSummary(preview.github) : "";
+  const against = preview?.active ? `active version v${preview.active}` : "no active version";
+
+  return (
+    <ConfirmDialog title="Save and activate this draft?" actions={actions} onCancel={onCancel}>
+      {error && <p className="banner banner-error inline-banner">{error}</p>}
+      {!preview && !error && <p className="muted">Comparing your draft with the active version and running the tests…</p>}
+      {preview && (
+        <>
+          <p>
+            This saves your draft as a new version and makes it the one the KMS and GitHub enforce, replacing the {against}.
+          </p>
+          <div>
+            <strong>Key decisions</strong> <span className="muted small">{kmsSummary || "no change"}</span>
+            <ChangeList changes={preview.kms} limit={8} empty="No change for any registered agent, key and KMS action." />
+          </div>
+          <div>
+            <strong>GitHub issue creation</strong> <span className="muted small">{preview.github ? githubSummary || "no change" : "not checked"}</span>
+            {preview.github ? (
+              <ChangeList changes={preview.github} limit={8} empty="No change for any agent and configured repository." />
+            ) : (
+              <p className="muted small">The GitHub service is unavailable, so issue creation wasn't compared.</p>
+            )}
+            {preview.githubMode === "real" && (preview.github?.some((c) => c.after === "ALLOW") ?? false) && (
+              <p className="builder-warning">GitHub is in LIVE mode: once active, these agents can create real issues.</p>
+            )}
+          </div>
+          {failing.length === 0 ? (
+            <p>
+              <span className="badge decision decision-allow">
+                {preview.tests.passed}/{preview.tests.total} PASS
+              </span>{" "}
+              Tests pass against the draft.
+            </p>
+          ) : (
+            <div className="activation-failed">
+              <p>
+                <strong>Activation would be refused:</strong> {failing.length} of {preview.tests.total} tests fail against the draft.
+              </p>
+              <ul className="changes">
+                {failing.slice(0, 8).map((f) => (
+                  <li key={f.name}>
+                    {f.name}: expected <DecisionBadge decision={f.expect} /> got <DecisionBadge decision={f.actual} />
+                  </li>
+                ))}
+              </ul>
+              <p className="muted small">You can still save it. To enforce it anyway, use “Activate anyway…” on the Versions page.</p>
+            </div>
+          )}
+          <p className="muted small">Activating is undone by restoring the previous version on Versions.</p>
+        </>
+      )}
     </ConfirmDialog>
   );
 }
