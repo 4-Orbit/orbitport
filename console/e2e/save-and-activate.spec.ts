@@ -50,6 +50,9 @@ test("Save and activate previews changes and is a no-op for an unchanged draft",
   await go.click();
   await expect(page.getByText(`identical to version ${before}`)).toBeVisible();
   await expect(page.getByText("already active. Nothing changed.")).toBeVisible();
+  // The status strip and the header agree on the active version.
+  await expect(page.locator(".topbar")).toContainText(`Active policy v${before}`);
+  await expect(page.getByText(`Your draft matches the active version v${before}`)).toBeVisible();
 
   const after = await rpc<{ version?: { version: number } }>("policy.GetActive");
   expect(after.version!.version).toBe(before);

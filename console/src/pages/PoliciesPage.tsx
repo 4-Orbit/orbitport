@@ -277,6 +277,9 @@ export function PoliciesPage({ onActivated }: { onActivated?: () => void } = {})
       });
       return;
     }
+    // The refresh started by saving ran alongside Activate and may have read
+    // the previous active version: read it again now that activation is done.
+    setVersionsTick((x) => x + 1);
     onActivated?.();
     setStatus({
       tone: "ok",
