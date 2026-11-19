@@ -75,6 +75,18 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
   const roles = entityIds(draft.entities, "Role");
   const agents = entityIds(draft.entities, "Agent");
 
+  // A failed request (no `policies` at all) says nothing about the text.
+  if (validation && validation.policies === undefined) {
+    return (
+      <div className="rules-empty">
+        <p>
+          <strong>Couldn't check your draft just now</strong>, so the rules can't be shown yet. Trying again in a few seconds; your draft is unchanged.
+        </p>
+        <p className="muted small">{validation.problems[0]?.message}</p>
+      </div>
+    );
+  }
+
   if (infos === null && validation) {
     return (
       <div className="rules-empty">
@@ -132,7 +144,8 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
         <RuleBuilder key={JSON.stringify(editing.prefill ?? null)} initial={null} prefill={editing.prefill} roles={roles} agents={agents} keys={keys} repositories={repositories} repositoryError={repositoryError} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
       )}
 
-      {cards.length === 0 && editing === null && (
+      {validation === null && editing === null && <p className="muted small rules-checking">Checking your rules…</p>}
+      {validation !== null && cards.length === 0 && editing === null && (
         <div className="rules-empty">
           <p>
             <strong>No rules yet.</strong> Agents can't do anything until a rule allows it. Account tokens (such as the operator's) always keep full access.

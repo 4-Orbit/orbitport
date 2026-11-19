@@ -109,6 +109,16 @@ test("an expired operator token is reported with a fix", async () => {
   gatewayReply = (b) => ({ status: 200, json: { jsonrpc: "2.0", id: 1, result: { echoed: b.method } } });
 });
 
+test("a gateway rate limit is passed through as 429, so the browser can retry", async () => {
+  gatewayReply = () => ({ status: 429, json: { error: "rate_limit_exceeded" } });
+  const res = await post("policy.Validate");
+  assert.equal(res.status, 429);
+  const body = (await res.json()) as { error: { message: string; reason: string } };
+  assert.equal(body.error.reason, "rate_limited");
+  assert.match(body.error.message, /rate-limiting/);
+  gatewayReply = (b) => ({ status: 200, json: { jsonrpc: "2.0", id: 1, result: { echoed: b.method } } });
+});
+
 test("rejects non-loopback Host headers (DNS rebinding)", async () => {
   // fetch cannot forge Host, so use node:http directly.
   const status = await new Promise<number>((resolve, reject) => {

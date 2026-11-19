@@ -51,6 +51,9 @@ export async function callGateway(gatewayUrl: string, token: string, call: Gatew
     const msg = typeof (parsed as { error?: unknown })?.error === "string" ? (parsed as { error: string }).error : `HTTP ${res.status}`;
     // 401 here means the operator token expired or the stack was reset.
     const hint = res.status === 401 ? " (operator token rejected: re-run `make 4orbit-seed`)" : "";
+    // 429: the gateway's per-token rate limit rejected the call before
+    // running it, so the browser may safely retry it.
+    if (res.status === 429) return { status: 429, body: { error: { message: "the gateway is rate-limiting this console; wait a few seconds", reason: "rate_limited" } } };
     return { status: res.status === 401 ? 401 : 502, body: { error: { message: redact(msg) + hint } } };
   }
   const envelope = parsed as { result?: unknown; error?: { code?: number; message?: string; data?: { reason?: string } } };
