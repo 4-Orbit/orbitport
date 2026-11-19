@@ -81,7 +81,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
   return (
     <>
       <Intro page="activity" title="Activity: what actually happened">
-        Every request agents made to the KMS, newest first: who asked, what, on which key, whether the <Term k="active">active version</Term>'s rules allowed it, and which rule decided. A DENY never reaches the key. Click a row for details, or replay it in the simulator.
+        KMS and GitHub requests, newest first: who asked, what, on which resource, whether the <Term k="active">active version</Term>'s rules allowed it, and which rule decided. A DENY never reaches the key. Click a row for details, or replay it in the simulator.
       </Intro>
       {audit.error && <div className="banner banner-error inline-banner">Could not load audit: {audit.error}</div>}
       {audit.data && <SummaryStrip summary={audit.data.summary} agents={principals} />}
@@ -90,7 +90,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
         <section className="panel empty-state">
           <h2>No decisions match</h2>
           <p>
-            Every KMS call and policy-admin attempt is recorded here. Generate some with <code>make 4orbit-e2e</code> or, for example:
+            Every KMS call, GitHub issue request and policy-admin attempt is recorded here. Generate some with <code>make 4orbit-e2e</code> or, for example:
           </p>
           <pre>scripts/4orbit/rpc.sh developer-agent kms.Encrypt '{"{"}"KeyId":"kms:dev-key","Plaintext":"aGVsbG8="{"}"}'</pre>
         </section>
@@ -108,7 +108,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
                     <th>Resource</th>
                     <th>Cedar</th>
                     <th>Determining policies</th>
-                    <th>KMS called</th>
+                    <th>Provider attempted</th>
                     <th>Result</th>
                     <th>Mode</th>
                     <th>Policy</th>
@@ -140,7 +140,7 @@ export function ActivityPage({ selectedId }: { selectedId: string | null }) {
                         {ev.authzErrors && <span className="badge result result-error">ERROR</span>}
                       </td>
                       <td>
-                        <KmsCalledBadge called={ev.kmsCalled} />
+                        <KmsCalledBadge called={ev.githubMode ? !!ev.githubCalled : ev.kmsCalled} />
                       </td>
                       <td>
                         <KmsResultBadge ev={ev} />
@@ -242,11 +242,11 @@ function Detail({ ev, keys, fromConsole }: { ev: AuditEvent; keys: KeyInfo[] | n
             <dd>{ev.authzErrors.join(", ")} (failed closed; diagnostics stay in the KMS plugin log)</dd>
           </>
         )}
-        <dt>KMS called</dt>
+        <dt>Provider attempted</dt>
         <dd>
-          <KmsCalledBadge called={ev.kmsCalled} /> {ev.kmsOperation && <span className="mono muted">{ev.kmsOperation}</span>}
+          <KmsCalledBadge called={ev.githubMode ? !!ev.githubCalled : ev.kmsCalled} /> {ev.kmsOperation && <span className="mono muted">{ev.kmsOperation}</span>}
         </dd>
-        <dt>KMS result</dt>
+        <dt>Provider result</dt>
         <dd>
           <KmsResultBadge ev={ev} />
         </dd>

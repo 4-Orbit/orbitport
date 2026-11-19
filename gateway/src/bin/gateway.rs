@@ -45,6 +45,9 @@ struct Args {
     /// the policy.* JSON-RPC methods used by the console's policy playground.
     #[clap(long, env = "ORBITPORT_POLICY_PLUGIN")]
     policy_plugin: Option<String>,
+    /// GitHub issue creation plugin (optional).
+    #[clap(long, env = "ORBITPORT_GITHUB_PLUGIN")]
+    github_plugin: Option<String>,
     /// Rate limit per access token, 4 requests per second
     /// (40 requests per 10 seconds window)
     #[clap(long, env = "ORBITPORT_RATE_LIMIT", default_value = "40")]
@@ -209,7 +212,8 @@ async fn main() -> Result<(), GatewayError> {
             args.threshold_plugin.trim(),
             threshold_groups,
         )
-        .with_policy(args.policy_plugin.as_deref()),
+        .with_policy(args.policy_plugin.as_deref())
+        .with_github(args.github_plugin.as_deref()),
     );
 
     server::start(

@@ -12,6 +12,7 @@ use crate::proto::services::threshold::DkgRequest;
 
 use crate::caller::Caller;
 use crate::services::ctrng::{CTrngService, MAX_CHUNKS};
+use crate::services::github::GithubCall;
 use crate::services::kms::{
     KeyStoreDeleteRequest, KeyStoreGetRequest, KeyStoreListRequest, KeyStorePutRequest, KmsRpcCall,
     KmsService,
@@ -150,6 +151,7 @@ pub enum RpcCall {
     GetPublicKey(GetPublicKeyRequest),
     /// 4Orbit policy administration (policy.* methods).
     Policy(PolicyCall),
+    Github(GithubCall),
 }
 
 impl RpcCall {
@@ -187,6 +189,7 @@ impl RpcCall {
                 method,
                 params_json,
             )?)),
+            m if m.starts_with("github.") => Ok(Self::Github(GithubCall::parse(m, params_json)?)),
             m if m.starts_with("policy.") => Ok(Self::Policy(PolicyCall::parse(m, params_json)?)),
             _ => Err(format!("Unsupported method: {method}")),
         }
@@ -231,6 +234,7 @@ impl RpcCall {
                 ThresholdService::validate_coordinate_dkg(req).map_err(|e| e.to_string())?
             }
             RpcCall::Policy(call) => call.validate()?,
+            RpcCall::Github(call) => call.validate()?,
         }
         Ok(())
     }
@@ -257,6 +261,7 @@ impl RpcCall {
             RpcCall::Decapsulate(_) => "kms.Decapsulate".to_string(),
             RpcCall::CoordinateDKG(_) => "kms_threshold.CoordinateDKG".to_string(),
             RpcCall::Policy(call) => call.method.clone(),
+            RpcCall::Github(call) => call.method.clone(),
         }
     }
 
@@ -280,6 +285,10 @@ impl RpcCall {
     ) -> Result<JsonRpcRawResponse, tonic::Status> {
         let client_id = caller.tenant.as_str();
         match self {
+            RpcCall::Github(call) => {
+                let result = call.execute(caller, plugin_catalog).await?;
+                serialize_success_response(req_id, result)
+            }
             RpcCall::Policy(call) => {
                 let result = call.execute(caller, plugin_catalog).await?;
                 serialize_success_response(req_id, result)

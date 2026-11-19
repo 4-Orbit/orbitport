@@ -250,6 +250,10 @@ export interface ActivateResult {
 }
 
 export interface AuditEvent {
+  githubCalled?: boolean;
+  githubMode?: "mock" | "real";
+  githubResult?: { status: string; issueNumber?: number };
+  stage?: "decision" | "outcome";
   ts: string;
   requestId: string;
   tenant: string;
@@ -319,4 +323,16 @@ export interface IssuedToken {
   roles: string[];
   token: string;
   expiresAt: number;
+}
+
+export interface GithubIssueResult {
+  decision: Decision;
+  determiningPolicies: string[];
+  policyVersion: number;
+  requestId: string;
+  mode: "mock" | "real";
+  githubCalled: boolean;
+  status: "DENIED" | "SUCCESS" | "ERROR" | "OUTCOME_AUDIT_UNAVAILABLE";
+  issueNumber?: number;
+  issueUrl?: string;
 }

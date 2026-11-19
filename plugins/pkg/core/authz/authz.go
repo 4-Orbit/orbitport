@@ -120,6 +120,7 @@ var (
 // Action groups, mirroring the schema. The engine refuses any action that is
 // not listed here before Cedar runs.
 var actionGroups = map[string]string{
+	"github.issue.Create":    "github.write",
 	"kms.Encrypt":            "use",
 	"kms.Decrypt":            "use",
 	"kms.Sign":               "use",
@@ -144,6 +145,7 @@ var actionGroups = map[string]string{
 
 // Resource type each action applies to.
 var actionResource = map[string]string{
+	"github.issue.Create":    "Repository",
 	"kms.ListKeys":           "KeyNamespace",
 	"kms_keystore.Put":       "KeyStoreKey",
 	"kms_keystore.Get":       "KeyStoreKey",
@@ -569,6 +571,13 @@ func prepare(c *Compiled, req Request) (prepared, string) {
 	attrs := cedar.RecordMap{"tenant": cedar.String(resourceTenant)}
 	tags := cedar.RecordMap{}
 	switch req.Resource.Type {
+	case "Repository":
+		parts := strings.Split(req.Resource.ID, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return prepared{}, "malformed repository id"
+		}
+		attrs["owner"] = cedar.String(parts[0])
+		attrs["name"] = cedar.String(parts[1])
 	case "Key":
 		for _, k := range []string{"scheme", "keySpec", "keyUsage"} {
 			attrs[cedar.String(k)] = cedar.String(req.Resource.Attrs[k])

@@ -11,6 +11,8 @@ import { VersionsPage } from "./pages/VersionsPage.tsx";
 import { AgentsPage } from "./pages/AgentsPage.tsx";
 import { HelpPage } from "./pages/HelpPage.tsx";
 
+import { GithubPage } from "./pages/GithubPage.tsx";
+
 const TABS: { page: Page; label: string }[] = [
   { page: "activity", label: "Activity" },
   { page: "access", label: "Access" },
@@ -19,6 +21,7 @@ const TABS: { page: Page; label: string }[] = [
   { page: "tests", label: "Tests" },
   { page: "versions", label: "Versions" },
   { page: "agents", label: "Agents" },
+  { page: "github", label: "GitHub" },
 ];
 
 export function App() {
@@ -85,6 +88,7 @@ export function App() {
         {route.page === "tests" && <TestsPage />}
         {route.page === "versions" && <VersionsPage onActivated={() => setTick((x) => x + 1)} />}
         {route.page === "agents" && <AgentsPage />}
+        {route.page === "github" && <GithubPage />}
         {route.page === "help" && <HelpPage />}
       </main>
     </div>

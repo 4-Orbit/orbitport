@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { serveStatic } from "./static.ts";
 import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
-import { parseRunRequest, RunError, Runner } from "./run.ts";
+import { parseRunRequest, parseGithubIssueRequest, RunError, Runner } from "./run.ts";
 
 /**
  * The console's backend-for-frontend. It holds the operator (account) PAT,
@@ -26,6 +26,7 @@ export interface AppOptions {
 
 /** Methods the browser may call. Everything else is refused here. */
 export const ALLOWED_METHODS = new Set([
+  "github.ListRepositories",
   "policy.GetSchema",
   "policy.GetActive",
   "policy.ListVersions",
@@ -101,6 +102,21 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (!token) return sendJson(res, 503, { error: "operator token missing: run `make 4orbit-seed`" });
     try {
       return sendJson(res, 200, { result: await runner.run(token, parsed) });
+    } catch (e) {
+      if (e instanceof RunError) return sendJson(res, e.status, { error: e.message });
+      throw e;
+    }
+  }
+
+  if (pathname === "/api/github/issues") {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "method not allowed" });
+    if (!/^application\/json\b/.test(req.headers["content-type"] ?? "")) return sendJson(res, 415, { error: "expected application/json" });
+    const parsed = parseGithubIssueRequest(await readJsonBody(req));
+    if (typeof parsed === "string") return sendJson(res, 400, { error: parsed });
+    const token = readToken(opts.tokenFile);
+    if (!token) return sendJson(res, 503, { error: "operator token missing: run make 4orbit-seed" });
+    try {
+      return sendJson(res, 200, { result: await runner.createGithubIssue(token, parsed) });
     } catch (e) {
       if (e instanceof RunError) return sendJson(res, e.status, { error: e.message });
       throw e;

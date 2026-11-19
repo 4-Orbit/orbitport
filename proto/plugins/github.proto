@@ -1,0 +1,16 @@
+syntax = "proto3";
+option go_package = "github.com/spacecomputer-io/orbitport/plugins/proto";
+package github;
+
+// Gateway-only transport. Identity comes from a verified PAT and account Hold.
+service GithubPlugin {
+  rpc Call(GithubCallRequest) returns (GithubCallResponse);
+}
+message GithubCallRequest {
+  string method = 1;
+  string kms_tenant = 2;
+  string agent_id = 3;
+  string jti_hash = 4;
+  string params_json = 5;
+}
+message GithubCallResponse { string result_json = 1; }

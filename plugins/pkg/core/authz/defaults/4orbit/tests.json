@@ -1076,5 +1076,35 @@
     },
     "at": 1800000000,
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create issue demo-owner/orbitport-test",
+    "agentId": "developer-agent",
+    "action": "github.issue.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent create issue demo-owner/orbitport-test",
+    "agentId": "security-agent",
+    "action": "github.issue.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create issue other-owner/other-repo",
+    "agentId": "developer-agent",
+    "action": "github.issue.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "other-owner/other-repo"
+    },
+    "expect": "DENY"
   }
 ]

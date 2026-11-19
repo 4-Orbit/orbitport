@@ -53,6 +53,27 @@ services:
       openbao-proxy:
         condition: service_healthy
 
+  plugin-github:
+    <<: *fourorbit-plugin
+    container_name: plugin-github
+    user: "${FOURORBIT_UID:-65532}:${FOURORBIT_GID:-65532}"
+    image: op-plugin:latest
+    environment:
+      - ORBITPORT_PLUGIN=github
+      - ORBITPORT_GRPC_PORT=50010
+      - ORBITPORT_GITHUB_POLICY_PLUGIN=plugin-policy:50009
+      - ORBITPORT_GITHUB_MODE=${ORBITPORT_GITHUB_MODE:-mock}
+      - ORBITPORT_GITHUB_REPOSITORY=${ORBITPORT_GITHUB_REPOSITORY:-demo-owner/orbitport-test}
+      - ORBITPORT_GITHUB_TENANT=${ORBITPORT_GITHUB_TENANT:-noop-tenant}
+      - ORBITPORT_GITHUB_APP_ID=${ORBITPORT_GITHUB_APP_ID:-}
+      - ORBITPORT_GITHUB_INSTALLATION_ID=${ORBITPORT_GITHUB_INSTALLATION_ID:-}
+      - ORBITPORT_GITHUB_PRIVATE_KEY_FILE=/run/github/app.pem
+    volumes:
+      - ./.4orbit/github:/run/github:ro
+    depends_on:
+      plugin-policy:
+        condition: service_started
+
   plugin-kms:
     environment:
       - ORBITPORT_KMS_POLICY_PLUGIN=plugin-policy:50009
@@ -70,8 +91,10 @@ services:
   gateway:
     environment:
       - ORBITPORT_POLICY_PLUGIN=http://plugin-policy:50009
+      - ORBITPORT_GITHUB_PLUGIN=http://plugin-github:50010
     depends_on:
       - plugin-policy
+      - plugin-github
 
   # One-shot: operator PAT, demo keys, policy v1, agent PATs. Re-run with
   # `make 4orbit-seed`. Writes ./.4orbit/tokens (mode 600).
