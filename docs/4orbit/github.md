@@ -31,7 +31,7 @@ To target a stack under another Compose project name, set `COMPOSE_PROJECT_NAME`
 
 You need a GitHub App installed on the repository's owner, with only the test repository selected and **Issues: Read and write**.
 
-1. Copy the App's private key to `.4orbit/github/app.pem` and `chmod 600` it. `.4orbit/` is git-ignored; the Makefile runs the container as your user so it can read the file. Never paste the key into the browser or commit it.
+1. Copy the App's private key to `.4orbit/github/app.pem` and `chmod 600` it. For example, from the repo root: `mkdir -p .4orbit/github && cp /path/to/downloaded-key.pem .4orbit/github/app.pem && chmod 600 .4orbit/github/app.pem`. `.4orbit/` is git-ignored; Compose mounts that fixed path into the GitHub plugin, so you do not set a PEM path in `.4orbit.env`. Never paste the key into the browser or commit it.
 2. In `.4orbit.env` (copy `.4orbit.env.example` if you don't have one):
 
    ```dotenv
