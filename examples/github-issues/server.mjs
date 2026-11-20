@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createWorkflow, localCredentials, cedarPolicy, jsonlAudit, mockGitHub, ACTION } from './workflow.mjs';
 import { githubApp, verifyInstallation } from './github.mjs';
+import { createGeminiClient, GeminiError } from './gemini.mjs';
 
 /** Trusted local operator console. Agent identity remains locally issued in both modes. */
-export function createDemo({ auditPath = new URL('./audit.jsonl', import.meta.url), repository = 'demo-owner/orbitport-test', github = mockGitHub() } = {}) {
+export function createDemo({ auditPath = new URL('./audit.jsonl', import.meta.url), repository = 'demo-owner/orbitport-test', github = mockGitHub(), gemini = null } = {}) {
   const credentials = localCredentials();
   const events = new Map();
   const operations = new Map();
+  let geminiBusy = false;
   const writeAudit = jsonlAudit(auditPath);
   const workflow = createWorkflow({ repository, validateCredential: credentials.validate,
     authorize: cedarPolicy(repository), github,
@@ -27,7 +29,35 @@ export function createDemo({ auditPath = new URL('./audit.jsonl', import.meta.ur
         res.writeHead(200, { 'Content-Type': type });
         return res.end(readFileSync(new URL(`./public/${file}`, import.meta.url)));
       }
-      if (req.method === 'GET' && req.url === '/api/events') return reply(200, { repository, mode: github.mode, credentialMode: 'LOCAL_STUB', events: [...events.values()].reverse(), operations: Object.fromEntries(operations) });
+      if (req.method === 'GET' && req.url === '/api/events') return reply(200, { repository, mode: github.mode, credentialMode: 'LOCAL_STUB', geminiEnabled: !!gemini, events: [...events.values()].reverse(), operations: Object.fromEntries(operations) });
+      if (req.method === 'POST' && req.url === '/api/operator/gemini') {
+        if (req.headers.origin !== `http://${host}` || req.headers['content-type'] !== 'application/json') return reply(403, { error: 'Same-origin JSON required' });
+        if (!gemini) return reply(503, { error: 'Gemini is not configured' });
+        if (geminiBusy) return reply(429, { error: 'A Gemini request is already running' });
+        let body = '';
+        for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 8_000) return reply(413, { error: 'Request too large' }); }
+        const input = JSON.parse(body);
+        if (!input || !['developer-agent', 'security-agent'].includes(input.agentId) ||
+          typeof input.repository !== 'string' || typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 4000 ||
+          Object.keys(input).some(k => !['agentId', 'repository', 'prompt', 'confirmLive'].includes(k))) return reply(400, { error: 'Invalid Gemini request' });
+        if (github.mode === 'REAL' && input.confirmLive !== true) return reply(400, { error: 'Confirm real GitHub issue creation' });
+        geminiBusy = true;
+        try {
+          let proposal;
+          try { proposal = await gemini.proposeIssue({ prompt: input.prompt, repository: input.repository }); }
+          catch (error) { return reply(error instanceof GeminiError ? (error.httpStatus || (error.kind === 'timeout' ? 504 : 502)) : 502,
+            { error: error instanceof GeminiError ? error.message : 'Gemini could not propose an issue. Check the key, model, or Gemini service.' }); }
+          const token = credentials.issue(input.agentId, repository);
+          try {
+            const result = await workflow({ version: 1, action: ACTION, repository: input.repository, ...proposal }, token);
+            if (result.issue) {
+              operations.set(result.requestId, { mode: result.mode, issue: result.issue });
+              if (operations.size > 500) operations.delete(operations.keys().next().value);
+            }
+            return reply(200, { ...result, proposal });
+          } finally { credentials.revoke(token); }
+        } finally { geminiBusy = false; }
+      }
       if (req.method === 'POST' && req.url === '/api/operator/requests') {
         if (req.headers.origin !== `http://${host}` || req.headers['content-type'] !== 'application/json') return reply(403, { error: 'Same-origin JSON required' });
         let body = '';
@@ -62,6 +92,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const { installationId } = await verifyInstallation({ appId, privateKey, repository });
       options = { repository, github: githubApp({ appId, installationId, privateKey, repository }) };
     }
+    if (process.env.GEMINI_API_KEY) options.gemini = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || undefined });
     const mode = options.github?.mode ?? 'MOCK';
     const port = Number(process.env.CONSOLE_PORT ?? 4321);
     if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');

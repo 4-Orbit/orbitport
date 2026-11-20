@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 let rows = [];
-let configured = false, busy = false, serverMode;
+let configured = false, busy = false, serverMode, geminiEnabled = false;
 const completed = new Map();
 function text(tag, value, className) {
   const node = document.createElement(tag); node.textContent = value;
@@ -18,6 +18,7 @@ async function refresh() {
   if (!['MOCK', 'REAL'].includes(data.mode)) throw new Error('Invalid mode');
   if (configured && serverMode !== data.mode) { location.reload(); return; }
   serverMode = data.mode;
+  geminiEnabled = data.geminiEnabled === true;
   const live = data.mode === 'REAL';
   $('mode-label').textContent = `${data.mode} GITHUB · LOCAL CREDENTIALS`;
   $('form-mode').textContent = data.mode;
@@ -30,6 +31,8 @@ async function refresh() {
   $('confirm-live').required = live;
   if (!configured) { $('repository').value = data.repository; configured = true; }
   $('submit').disabled = busy;
+  $('gemini-submit').disabled = busy || !geminiEnabled;
+  $('gemini-mode').textContent = geminiEnabled ? 'READY' : 'ADD GEMINI_API_KEY';
   $('connection').textContent = '● Local demo connected';
   $('total').textContent = rows.length;
   $('allowed').textContent = rows.filter(r => r.decision === 'ALLOW').length;
@@ -56,7 +59,7 @@ async function refresh() {
 $('close').onclick = () => { $('detail').hidden = true; };
 $('request-form').onsubmit = async event => {
   event.preventDefault(); if (!configured || busy) return;
-  busy = true; $('submit').disabled = true; $('outcome').textContent = 'Evaluating request…';
+  busy = true; $('submit').disabled = true; $('gemini-submit').disabled = true; $('outcome').textContent = 'Evaluating request…';
   try {
     const input = { ...Object.fromEntries(new FormData(event.target)), confirmLive: $('confirm-live').checked };
     const response = await fetch('/api/operator/requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
@@ -68,7 +71,29 @@ $('request-form').onsubmit = async event => {
     $('confirm-live').checked = false;
     await refresh();
   } catch { $('outcome').textContent = 'Could not complete the request. Check the server before submitting again.'; }
-  finally { busy = false; $('submit').disabled = false; }
+  finally { busy = false; $('submit').disabled = false; $('gemini-submit').disabled = !geminiEnabled; }
+};
+$('gemini-form').onsubmit = async event => {
+  event.preventDefault(); if (!configured || !geminiEnabled || busy) return;
+  if (serverMode === 'REAL' && !$('confirm-live').checked) {
+    $('gemini-outcome').textContent = 'Confirm real GitHub issue creation above before asking Gemini.';
+    return;
+  }
+  busy = true; $('submit').disabled = true; $('gemini-submit').disabled = true;
+  $('gemini-outcome').textContent = 'Gemini is proposing an issue…';
+  try {
+    const input = { agentId: $('agent').value, repository: $('repository').value, prompt: $('gemini-prompt').value, confirmLive: $('confirm-live').checked };
+    const response = await fetch('/api/operator/gemini', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gemini request failed');
+    completed.set(result.requestId, result); if (completed.size > 500) completed.delete(completed.keys().next().value);
+    $('gemini-outcome').textContent = `${result.decision} · ${result.result.replaceAll('_', ' ')} · ${result.proposal.title}${result.mode === 'MOCK' ? ' · No real issue created.' : ''}`;
+    const link = safeIssueLink(result.issue); if (link) $('gemini-outcome').append(document.createElement('br'), link);
+    $('confirm-live').checked = false;
+    await refresh();
+  } catch (error) { $('gemini-outcome').textContent = error.message.startsWith('Gemini ')
+    ? error.message : 'Could not complete the Gemini request. Check the server and repository before submitting again.'; }
+  finally { busy = false; $('submit').disabled = false; $('gemini-submit').disabled = !geminiEnabled; }
 };
 refresh().catch(() => { $('connection').textContent = '● Local demo unavailable'; });
 setInterval(() => refresh().catch(() => { $('connection').textContent = '● Connection interrupted'; }), 5000);
