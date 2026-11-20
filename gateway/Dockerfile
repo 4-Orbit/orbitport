@@ -7,7 +7,7 @@ ARG RUST_VERSION=1.92
 # RUNTIME_IMAGE=gcr.io/distroless/cc-debian13:nonroot to build without one.
 ARG RUNTIME_IMAGE=dhi.io/static:20250419-glibc
 
-FROM rust:${RUST_VERSION}-slim-trixie AS build
+FROM rust:${RUST_VERSION}-slim-bookworm AS build
 
 RUN apt-get update && apt-get install -y \
     build-essential \
