@@ -43,6 +43,13 @@ test("Gemini treats malformed provider JSON shapes as a safe response error", as
   await assert.rejects(client.proposeIssue(task), (error: unknown) => error instanceof GeminiError && error.kind === "response");
 });
 
+test("Gemini identifies a timeout while reading the response body", async () => {
+  const response = ok(proposed);
+  response.json = async () => { throw new DOMException("The operation was aborted", "TimeoutError"); };
+  const client = createGeminiClient({ apiKey: "server-secret", fetchImpl: (async () => response) as typeof fetch });
+  await assert.rejects(client.proposeIssue(task), (error: unknown) => error instanceof GeminiError && error.kind === "timeout");
+});
+
 test("Gemini retries one HTTP 503 and preserves final provider status", async () => {
   let calls = 0, waits = 0;
   const client = createGeminiClient({ apiKey: "server-secret", waitImpl: async () => { waits++; }, fetchImpl: (async () => {

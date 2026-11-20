@@ -57,7 +57,7 @@ test("one Gemini proposal uses the existing agent-token GitHub issue path", asyn
   const f = await fixture({ async proposeIssue(input) {
     proposals++;
     assert.deepEqual(input, { prompt: baseRequest.prompt, repository: baseRequest.repository });
-    return { title: "Fix login", body: "The button does not respond." };
+    return { title: "Fix login", body: "The button does not respond.", agentId: "security-agent", repository: "other/repo" };
   } }); t.after(f.close);
   const response = await submit(f.base);
   assert.equal(response.status, 200);

@@ -55,6 +55,8 @@ export function createGeminiClient({
         }],
       };
       let response: Response | undefined;
+      const signal = AbortSignal.timeout(30_000);
+      const timedOut = (error: unknown) => signal.aborted || error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           response = await fetchImpl(ENDPOINT, {
@@ -62,10 +64,10 @@ export function createGeminiClient({
             headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
             body: JSON.stringify(request),
             redirect: "error",
-            signal: AbortSignal.timeout(30_000),
+            signal,
           });
         } catch (error) {
-          throw new GeminiError(error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network");
+          throw new GeminiError(timedOut(error) ? "timeout" : "network");
         }
         if (response.status !== 503 || attempt === 1) break;
         await waitImpl(750);
@@ -73,7 +75,7 @@ export function createGeminiClient({
       if (!response) throw new GeminiError("network");
       if (!response.ok) throw new GeminiError("provider", response.status);
       let data: { steps?: Array<{ type?: unknown; name?: unknown; arguments?: unknown }> };
-      try { data = await response.json() as typeof data; } catch { throw new GeminiError("response"); }
+      try { data = await response.json() as typeof data; } catch (error) { throw new GeminiError(timedOut(error) ? "timeout" : "response"); }
       if (!Array.isArray(data?.steps)) throw new GeminiError("response");
       const calls = data.steps.filter((step) => step?.type === "function_call");
       if (calls.length !== 1 || calls[0].name !== "create_issue") throw new GeminiError("proposal");

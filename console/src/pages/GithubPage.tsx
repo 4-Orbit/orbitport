@@ -30,7 +30,7 @@ export function GithubPage() {
     setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
   }, [agents.data]);
   useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
-  const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); };
+  const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); setConfirmGemini(false); };
 
   async function evaluate() {
     setBusy(true); setError(null); setSimulation(null); setResult(null);

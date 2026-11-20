@@ -154,7 +154,7 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
       if (error instanceof GeminiError) return sendJson(res, error.httpStatus ?? (error.kind === "timeout" ? 504 : 502), { error: error.message });
       return sendJson(res, 502, { error: "Gemini proposal failed" });
     }
-    const issue = parseGithubIssueRequest({ agentId: selected.agentId, repository: selected.repository, ...proposal });
+    const issue = parseGithubIssueRequest({ agentId: selected.agentId, repository: selected.repository, title: proposal.title, body: proposal.body });
     if (typeof issue === "string") return sendJson(res, 502, { error: "Gemini proposed an invalid issue" });
     try { return sendJson(res, 200, { result: await runner.createGithubIssue(token, issue), proposal }); }
     catch (error) {
