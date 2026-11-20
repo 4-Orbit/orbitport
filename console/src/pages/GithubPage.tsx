@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.ts";
 import { useDraft } from "../draft.tsx";
 import { EntityPicker } from "../components/EntityPicker.tsx";
@@ -24,12 +24,14 @@ export function GithubPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GithubIssueResult | null>(null);
   const [simulation, setSimulation] = useState<SimulateResult | null>(null);
+  const feedbackBanner = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const ids = agents.data ?? [];
     setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
   }, [agents.data]);
   useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
+  useEffect(() => { if (result || error) feedbackBanner.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [result, error]);
   const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); setConfirmGemini(false); };
 
   async function evaluate() {
@@ -64,7 +66,13 @@ export function GithubPage() {
     <div className={`banner ${mode === "real" ? "banner-error" : ""}`}>
       {mode === "real" ? "LIVE · Allowed requests create real GitHub issues." : mode === "mock" ? "MOCK · Exercises authorization and audit without contacting GitHub." : repositories.error ? "The GitHub service is unavailable." : "Connecting to the GitHub service…"}
     </div>
-    {error && <div className="banner banner-error" role="alert">{error}</div>}
+    {error && <div ref={feedbackBanner} className="banner banner-error github-outcome-banner" role="alert">{error}</div>}
+    {result && <div ref={feedbackBanner} className={`banner inline-banner github-outcome-banner ${result.status === "SUCCESS" ? "banner-ok" : "banner-error"}`} role={result.status === "SUCCESS" ? "status" : "alert"}>
+      <strong>{result.status === "SUCCESS" ? result.mode === "mock" ? "Mock issue creation succeeded" : result.issueNumber ? `Issue #${result.issueNumber} created` : "GitHub issue created" : result.status === "DENIED" ? "Issue creation denied" : "Issue outcome needs checking"}</strong>
+      {" · "}{result.status === "DENIED" ? "The active policy blocked this request; no GitHub issue was created." : result.status === "SUCCESS" ? result.mode === "mock" ? "No GitHub issue was created." : `Created in ${repository}.` : "Check GitHub and Activity before retrying; the issue may have been created."}
+      {" "}{result.issueUrl && <a href={result.issueUrl} target="_blank" rel="noreferrer">Open issue</a>}
+      {" "}<a href={`#/activity/${encodeURIComponent(result.requestId)}`}>View audit decision</a>
+    </div>}
     <section className="panel">
       <header className="panel-head"><h2>New issue</h2></header>
       <form className="panel-body stack" onSubmit={(e) => { e.preventDefault(); void create(); }}>

@@ -831,6 +831,10 @@ label.field.checkbox {
   border: 1px solid var(--allow);
 }
 
+.github-outcome-banner {
+  scroll-margin-top: 68px;
+}
+
 .dot {
   display: inline-block;
   width: 8px;
