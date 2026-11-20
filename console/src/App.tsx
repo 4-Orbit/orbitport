@@ -83,7 +83,7 @@ export function App() {
       <main className="content">
         {route.page === "activity" && <ActivityPage selectedId={route.requestId} />}
         {route.page === "access" && <AccessPage />}
-        {route.page === "policies" && <PoliciesPage />}
+        {route.page === "policies" && <PoliciesPage onActivated={() => setTick((x) => x + 1)} />}
         {route.page === "simulate" && <SimulatePage />}
         {route.page === "tests" && <TestsPage />}
         {route.page === "versions" && <VersionsPage onActivated={() => setTick((x) => x + 1)} />}
