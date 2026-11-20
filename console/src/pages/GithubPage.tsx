@@ -17,6 +17,9 @@ export function GithubPage() {
   const [repository, setRepository] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [task, setTask] = useState("");
+  const [confirmGemini, setConfirmGemini] = useState(false);
+  const [proposedTitle, setProposedTitle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GithubIssueResult | null>(null);
@@ -27,7 +30,7 @@ export function GithubPage() {
     setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
   }, [agents.data]);
   useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
-  const changed = () => { setSimulation(null); setResult(null); };
+  const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); };
 
   async function evaluate() {
     setBusy(true); setError(null); setSimulation(null); setResult(null);
@@ -37,10 +40,22 @@ export function GithubPage() {
   }
 
   async function create() {
-    setBusy(true); setError(null); setResult(null); setSimulation(null);
+    setBusy(true); setError(null); setResult(null); setSimulation(null); setProposedTitle(null);
     try { setResult(await api.createGithubIssue(agentId, repository, title, body)); }
     catch (e) { setError(`${(e as Error).message}. Check Activity and GitHub before trying again; an interrupted request may have created an issue.`); }
     finally { setBusy(false); }
+  }
+
+  async function createWithGemini() {
+    setBusy(true); setError(null); setResult(null); setSimulation(null); setProposedTitle(null);
+    try {
+      const outcome = await api.createGeminiGithubIssue(agentId, repository, task, confirmGemini);
+      setResult(outcome.result);
+      setProposedTitle(outcome.proposal.title);
+      setConfirmGemini(false);
+    } catch (e) {
+      setError(`${(e as Error).message}. Check Activity and GitHub before trying again; an interrupted request may have created an issue.`);
+    } finally { setBusy(false); }
   }
 
   const simulated = simulation?.results[0];
@@ -66,6 +81,16 @@ export function GithubPage() {
         <p className="muted small">Checks use the active version, not unsaved policy edits. Each creation checks the policy again. Requests are never retried automatically.</p>
       </form>
     </section>
+    <section className="panel">
+      <header className="panel-head"><h2>Ask Gemini to create an issue</h2></header>
+      <form className="panel-body stack" onSubmit={(e) => { e.preventDefault(); void createWithGemini(); }}>
+        <p>Gemini writes one title and description from your task. Orbitport creates the issue as the agent and checks the active policy.</p>
+        <label className="field"><span>Task</span><textarea value={task} maxLength={4000} rows={5} disabled={busy} onChange={(e) => { setTask(e.target.value); changed(); }} placeholder="Describe the issue you want created" required /></label>
+        <label className="row"><input type="checkbox" checked={confirmGemini} disabled={busy} onChange={(e) => setConfirmGemini(e.target.checked)} /><span>{mode === "real" ? "I understand this may create a real GitHub issue in the selected repository." : "I understand this will attempt one mock issue creation."}</span></label>
+        <button type="submit" className="button primary" disabled={busy || !mode || !repository || !agentId || !task.trim() || !confirmGemini}>{busy ? "Working…" : mode === "real" ? "Create issue with Gemini" : "Run Gemini mock issue"}</button>
+        <p className="muted small">Uses the agent and repository selected above. Gemini can write the issue text; it cannot choose the agent or repository.</p>
+      </form>
+    </section>
     {simulated && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>Policy check · {simulation?.source}</h2><div><DecisionBadge decision={simulated.decision} /> <PolicyChips ids={simulated.determiningPolicies} /></div>
       {simulated.explanation && <ExplanationView explanation={simulated.explanation} request={{ agentId: simulated.request.agentId, action: simulated.request.action, resource: simulated.request.resource.id, resourceType: "Repository" }} />}
@@ -73,6 +98,7 @@ export function GithubPage() {
     </div></section>}
     {result && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>{result.status === "SUCCESS" ? result.mode === "mock" ? "Mock issue created" : `Issue #${result.issueNumber} created` : result.status === "DENIED" ? "Issue creation denied" : "Issue outcome needs checking"}</h2>
+      {proposedTitle && <p>Gemini proposed: <strong>{proposedTitle}</strong></p>}
       <div><DecisionBadge decision={result.decision} /> <PolicyChips ids={result.determiningPolicies} /></div>
       <p>{result.status === "DENIED" ? "The request was blocked before contacting GitHub." : result.status === "ERROR" || result.status === "OUTCOME_AUDIT_UNAVAILABLE" ? "Check GitHub and Activity before trying again. The request may have succeeded." : result.mode === "mock" ? "Mock result only; no GitHub issue was created." : "The issue was created using the GitHub App."}</p>
       <div className="row">{result.issueUrl && <a className="button" href={result.issueUrl} target="_blank" rel="noreferrer">Open issue</a>}<a className="button" href={`#/activity/${encodeURIComponent(result.requestId)}`}>View audit decision</a></div>

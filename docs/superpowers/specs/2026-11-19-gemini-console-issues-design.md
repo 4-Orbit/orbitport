@@ -11,6 +11,7 @@ An operator gives a registered Orbitport agent one task on the main GitHub page.
 - The operator chooses an agent and repository from the existing page. The server validates those values and a task of at most 4,000 characters. The model may return only a title and body; it cannot choose an agent or repository.
 - The operator confirms that a Gemini proposal may create an issue before submitting. In LIVE mode, the UI says this can create a real GitHub issue. The server requires confirmation for every Gemini submission.
 - The console validates one tool call and the existing issue request limits before calling `Runner.createGithubIssue`. It calls Gemini with `store: false`, a 30-second timeout, and at most one retry on HTTP 503. The GitHub operation is never retried.
+- The console accepts at most five Gemini tasks per minute per process, before contacting Gemini. This bounds provider use even when issue creation is denied later.
 - Gemini HTTP failures return their status and standard reason to the browser. Network failures and timeouts get distinct safe errors. Prompt, API key, PAT, and provider response body do not enter Activity or server logs.
 - The UI displays the generated issue title and the same decision, issue link, and Activity link as manual creation.
 
@@ -22,4 +23,4 @@ An operator gives a registered Orbitport agent one task on the main GitHub page.
 
 ## Verification
 
-Tests use fake Gemini and gateway transports: valid proposal calls `github.issue.Create` once with an agent PAT; DENY makes no GitHub provider call; invalid/multiple tool calls and provider errors make no gateway issue call; confirmation and missing key block before Gemini; the API key and prompt never appear in responses or Activity. Console typecheck and build pass. No live GitHub issue is created during automated tests.
+Tests use fake Gemini and gateway transports: valid proposal calls `github.issue.Create` once with an agent PAT; DENY makes no GitHub provider call; invalid/multiple tool calls and provider errors make no gateway issue call; confirmation and missing key block before Gemini; the API key never appears in responses or Activity. The raw prompt is not stored or echoed separately, although Gemini may quote it in the proposed issue text returned to the operator. Console typecheck and build pass. No live GitHub issue is created during automated tests.

@@ -28,6 +28,8 @@ npm run dev                  # client on http://127.0.0.1:5173, API on :4317
 | `ORBITPORT_CONSOLE_PAT_FILE` | `../.4orbit/tokens/operator.pat` |
 | `CONSOLE_HOST` / `CONSOLE_PORT` | `127.0.0.1` / `4317` |
 | `CONSOLE_ALLOWED_HOSTS` | — (comma-separated extra Host names) |
+| `GEMINI_API_KEY` | — (optional; enables Gemini issue creation) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
 
 ## Test
 
@@ -40,4 +42,4 @@ npm run e2e:browser # against a running stack: DENY → why → Grant this → a
 
 ## GitHub issues
 
-The **GitHub** tab creates issues as an agent through the same Cedar flow, mock by default. Setup, the real GitHub App and the request flow are in [`docs/4orbit/github.md`](../docs/4orbit/github.md).
+The **GitHub** tab creates issues as an agent through the same Cedar flow, mock by default. With `GEMINI_API_KEY` set in `.4orbit.env`, the same tab accepts a task for Gemini to turn into one issue. Setup, the real GitHub App and the request flow are in [`docs/4orbit/github.md`](../docs/4orbit/github.md).
