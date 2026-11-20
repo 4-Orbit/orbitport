@@ -10,8 +10,30 @@ export class RpcError extends Error {
   }
 }
 
-/** Calls one allowlisted JSON-RPC method through the console server. */
+/**
+ * Waits before each retry of a rate-limited call. The gateway counts requests
+ * per token in fixed 10-second windows, so the last wait reaches the next one.
+ */
+export const RATE_LIMIT_RETRY_MS = [1000, 3000, 7000];
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Calls one allowlisted JSON-RPC method through the console server. A call
+ * the gateway rate-limited was never run, so it is retried, even a write.
+ */
 export async function rpc<R>(method: string, params: Record<string, unknown> = {}): Promise<R> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rpcOnce<R>(method, params);
+    } catch (e) {
+      if (!(e instanceof RpcError) || e.status !== 429 || attempt >= RATE_LIMIT_RETRY_MS.length) throw e;
+      await sleep(RATE_LIMIT_RETRY_MS[attempt]);
+    }
+  }
+}
+
+async function rpcOnce<R>(method: string, params: Record<string, unknown>): Promise<R> {
   let res: Response;
   try {
     res = await fetch("/api/rpc", {

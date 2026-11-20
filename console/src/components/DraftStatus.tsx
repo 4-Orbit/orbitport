@@ -10,6 +10,8 @@ interface Props {
   known: boolean;
   /** The draft validates. */
   valid: boolean;
+  /** The last check couldn't reach the engine (it is retried). */
+  checkFailed?: boolean;
   empty: boolean;
   /** Decisions that differ from the active version; null while checking. */
   changes: number | null;
@@ -21,7 +23,7 @@ type StepState = "current" | "done" | "todo";
  * Draft → Saved version → Active, always visible on the Policies page, with
  * one sentence saying what that means for enforcement right now.
  */
-export function DraftStatus({ dirty, base, active, known, valid, empty, changes }: Props) {
+export function DraftStatus({ dirty, base, active, known, valid, checkFailed = false, empty, changes }: Props) {
   const unsaved = dirty || base === null;
   const savedNotActive = !unsaved && base !== active;
   const live = !unsaved && base !== null && base === active;
@@ -35,6 +37,7 @@ export function DraftStatus({ dirty, base, active, known, valid, empty, changes 
   const changed = changes === null ? "…" : `${changes} decision${changes === 1 ? "" : "s"}`;
   let message: React.ReactNode;
   if (!known) message = "Checking versions…";
+  else if (checkFailed) message = "Couldn't check your draft just now; trying again in a few seconds. Your draft is unchanged.";
   else if (!valid) message = "Your draft has errors. Fix them (they're marked on the rules or lines) before saving.";
   else if (unsaved && empty && active === null) message = "Nothing is active yet, so agents are denied everything. Add rules, save them as a version, then activate it.";
   else if (unsaved && changes === 0 && active !== null)

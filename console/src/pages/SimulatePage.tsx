@@ -1,13 +1,15 @@
 import { Intro, Term } from "../components/Help.tsx";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.ts";
-import { entityIds, useDraft } from "../draft.tsx";
+import { useDraft } from "../draft.tsx";
 import type { SimResult, SimulateResult, TestCase } from "../types.ts";
 import { DecisionBadge, PolicyChips, SimTimeBadge } from "../components/Badges.tsx";
 import { ExplanationView } from "../components/Explanation.tsx";
 import { RunForReal } from "../components/RunForReal.tsx";
 import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
-import { useKeys, useSchema, useVersions } from "./shared.ts";
+import { EntityPicker } from "../components/EntityPicker.tsx";
+import { actionGroups, defaultResource, resourceField, resourceForAction, resourceProblem, resourceTypeOf } from "../resource-fields.ts";
+import { useKeys, useRepositories, useSchema, useSourceAgents, useVersions } from "./shared.ts";
 
 interface HistoryItem {
   result: SimResult;
@@ -21,6 +23,7 @@ export function SimulatePage() {
   const schema = useSchema();
   const keys = useKeys();
   const versions = useVersions();
+  const repositories = useRepositories();
   const [choice, setChoice] = useState<SourceChoice>("draft");
   const [when, setWhen] = useState("");
   const [agentId, setAgentId] = useState("developer-agent");
@@ -43,13 +46,27 @@ export function SimulatePage() {
     draft.setPendingSim(null);
   }, [draft.pendingSim]);
 
-  const resourceType = schema?.actions.find((a) => a.name === action)?.resourceType ?? "Key";
-  const agents = entityIds(draft.entities, "Agent");
-  const groups = useMemo(() => {
-    const g = new Map<string, string[]>();
-    for (const a of schema?.actions ?? []) g.set(a.group, [...(g.get(a.group) ?? []), a.name]);
-    return [...g.entries()];
-  }, [schema]);
+  const resourceType = resourceTypeOf(action, schema?.actions);
+  const field = resourceField(resourceType);
+  const agents = useSourceAgents(choice, draft);
+  const keyAliases = useMemo(() => (keys.data ?? []).map((k) => k.alias), [keys.data]);
+  const groups = useMemo(() => actionGroups(schema?.actions ?? []), [schema]);
+  const problem = resourceProblem(resourceType, resourceId);
+
+  // An empty resource is filled once its list arrives (the first visit, or a
+  // switch to GitHub before the repositories loaded).
+  useEffect(() => {
+    if (!resourceId) setResourceId(defaultResource(resourceType, { keys: keyAliases, repositories: repositories.data ?? [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyAliases, repositories.data]);
+
+  // A new resource type starts on a resource of that type, so a key alias is
+  // never sent as a repository (or the reverse).
+  const changeAction = (next: string) => {
+    setResourceId(resourceForAction(resourceType, resourceTypeOf(next, schema?.actions), resourceId, { keys: keyAliases, repositories: repositories.data ?? [] }));
+    setTags("");
+    setAction(next);
+  };
 
   // Tags default to the KMS key's tags; an explicit "k=v, k2=v2" overrides.
   const effectiveTags = (): Record<string, string> | undefined => {
@@ -122,18 +139,22 @@ export function SimulatePage() {
             void run();
           }}
         >
-          <label className="field">
-            <span>Principal (agent id; empty = account)</span>
-            <input list="sim-agents" value={agentId} onChange={(e) => setAgentId(e.target.value.trim())} placeholder="(account)" />
-            <datalist id="sim-agents">
-              {agents.map((a) => (
-                <option key={a} value={a} />
-              ))}
-            </datalist>
-          </label>
+          <EntityPicker
+            label="Principal"
+            value={agentId}
+            onChange={setAgentId}
+            options={agents.data ?? []}
+            loading={agents.data === null && !agents.error}
+            error={agents.error}
+            emptyLabel="(account)"
+            allowOther
+            noun="an agent"
+            placeholder="agent id (not registered yet)"
+            note={agentId && agents.data && !agents.data.includes(agentId) ? `Not registered in ${choice === "draft" ? "the draft" : choice === "active" ? "the active version" : `version ${choice.slice(1)}`}.` : undefined}
+          />
           <label className="field">
             <span>Action</span>
-            <select value={action} onChange={(e) => setAction(e.target.value)}>
+            <select value={action} onChange={(e) => changeAction(e.target.value)}>
               {groups.map(([group, names]) => (
                 <optgroup key={group} label={group}>
                   {names.map((n) => (
@@ -145,15 +166,37 @@ export function SimulatePage() {
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>Resource ({resourceType})</span>
-            <input list="sim-keys" value={resourceId} onChange={(e) => setResourceId(e.target.value.trim())} />
-            <datalist id="sim-keys">
-              {(keys.data ?? []).map((k) => (
-                <option key={k.alias} value={k.alias} />
-              ))}
-            </datalist>
-          </label>
+          {resourceType === "Repository" ? (
+            <EntityPicker
+              key="repository"
+              label={field.label}
+              value={resourceId}
+              onChange={setResourceId}
+              options={repositories.data ?? []}
+              loading={repositories.data === null && !repositories.error}
+              error={repositories.error}
+              allowOther
+              noun="a repository"
+              placeholder={field.placeholder}
+              problem={problem}
+              note={resourceId && repositories.data && !repositories.data.includes(resourceId) ? "Not configured for issue creation; a rule can still name it." : undefined}
+            />
+          ) : (
+            <EntityPicker
+              key="key"
+              label={field.label}
+              value={resourceId}
+              onChange={setResourceId}
+              options={keyAliases}
+              loading={keys.data === null}
+              error={keys.error}
+              allowOther
+              noun="a key"
+              placeholder={field.placeholder}
+              problem={problem}
+              note={keys.more ? `Showing the first ${keyAliases.length} keys; use Other… for any other alias.` : undefined}
+            />
+          )}
           {resourceType === "Key" && (
             <label className="field">
               <span>Key tags override (k=v, …)</span>
@@ -163,7 +206,7 @@ export function SimulatePage() {
           <SourcePicker value={choice} onChange={setChoice} versions={versions} />
           <TimeTravel value={when} onChange={setWhen} />
           <div className="row">
-            <button type="submit" className="button primary" disabled={!action || !resourceId}>
+            <button type="submit" className="button primary" disabled={!action || problem !== null}>
               Evaluate
             </button>
           </div>

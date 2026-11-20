@@ -38,6 +38,12 @@ export function RunForReal({ request, simulated }: { request: SimRequest; simula
     [request.agentId, request.action, request.resource.id, version],
   );
 
+  if (request.resource.type === "Repository")
+    return (
+      <p className="muted small">
+        Run it for real only sends KMS requests. To try this for real, <a href="#/github">create an issue on the GitHub page</a>; the active version decides it the same way.
+      </p>
+    );
   if (blocked) return <p className="muted small">{blocked}</p>;
   const cmp = real ? compareRun(simulated, real) : null;
 

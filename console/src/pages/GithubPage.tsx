@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
-import { entityIds } from "../draft.tsx";
+import { useDraft } from "../draft.tsx";
+import { EntityPicker } from "../components/EntityPicker.tsx";
+import { useRepositories, useSourceAgents } from "./shared.ts";
 import { ExplanationView } from "../components/Explanation.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import type { GithubIssueResult, SimulateResult } from "../types.ts";
 
 export function GithubPage() {
-  const [agents, setAgents] = useState<string[]>([]);
-  const [agentId, setAgentId] = useState("developer-agent");
-  const [repositories, setRepositories] = useState<string[]>([]);
+  const draft = useDraft();
+  // Checks and creation use the active version, so its agents are the choices.
+  const agents = useSourceAgents("active", draft);
+  const repositories = useRepositories();
+  const mode = repositories.mode;
+  const [agentId, setAgentId] = useState("");
   const [repository, setRepository] = useState("");
-  const [mode, setMode] = useState<"mock" | "real" | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,12 +23,11 @@ export function GithubPage() {
   const [simulation, setSimulation] = useState<SimulateResult | null>(null);
 
   useEffect(() => {
-    Promise.all([api.githubRepositories(), api.active()]).then(([r, active]) => {
-      const ids = entityIds(active.version?.entities ?? [], "Agent");
-      setAgents(ids); setAgentId(ids.includes("developer-agent") ? "developer-agent" : ids[0] ?? "");
-      setRepositories(r.repositories); setRepository(r.repositories[0] ?? ""); setMode(r.mode);
-    }).catch((e: Error) => setError(e.message));
-  }, []);
+    const ids = agents.data ?? [];
+    setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
+  }, [agents.data]);
+  useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
+  const changed = () => { setSimulation(null); setResult(null); };
 
   async function evaluate() {
     setBusy(true); setError(null); setSimulation(null); setResult(null);
@@ -44,18 +47,16 @@ export function GithubPage() {
   return <div className="stack">
     <header><h1>GitHub issues</h1><p>Create one issue as a registered agent. The active policy decides whether it can proceed.</p></header>
     <div className={`banner ${mode === "real" ? "banner-error" : ""}`}>
-      {mode === "real" ? "LIVE · Allowed requests create real GitHub issues." : mode === "mock" ? "MOCK · Exercises authorization and audit without contacting GitHub." : "Connecting to the GitHub service…"}
+      {mode === "real" ? "LIVE · Allowed requests create real GitHub issues." : mode === "mock" ? "MOCK · Exercises authorization and audit without contacting GitHub." : repositories.error ? "The GitHub service is unavailable." : "Connecting to the GitHub service…"}
     </div>
     {error && <div className="banner banner-error" role="alert">{error}</div>}
     <section className="panel">
       <header className="panel-head"><h2>New issue</h2></header>
       <form className="panel-body stack" onSubmit={(e) => { e.preventDefault(); void create(); }}>
-        <label className="field"><span>Agent</span><select aria-label="Agent" value={agentId} disabled={busy} onChange={(e) => { setAgentId(e.target.value); setSimulation(null); setResult(null); }}>
-          {agents.map((id) => <option key={id} value={id}>{id}</option>)}
-        </select></label>
-        <label className="field"><span>Repository</span><select aria-label="Repository" value={repository} disabled={busy} onChange={(e) => { setRepository(e.target.value); setSimulation(null); setResult(null); }}>
-          {repositories.map((repo) => <option key={repo} value={repo}>{repo}</option>)}
-        </select></label>
+        <EntityPicker label="Agent" value={agentId} disabled={busy} noun="an agent" options={agents.data ?? []} loading={agents.data === null && !agents.error} error={agents.error} placeholder="registered agent id" onChange={(v) => { setAgentId(v); changed(); }} />
+        {repositories.error
+          ? <p className="builder-warning">Configured repositories could not be loaded: {repositories.error}. Issue creation needs the GitHub service.</p>
+          : <EntityPicker label="Repository" value={repository} disabled={busy} noun="a repository" options={repositories.data ?? []} loading={repositories.data === null} onChange={(v) => { setRepository(v); changed(); }} />}
         <label className="field"><span>Title</span><input value={title} maxLength={256} disabled={busy} onChange={(e) => setTitle(e.target.value)} required /></label>
         <label className="field"><span>Description</span><textarea value={body} maxLength={60000} rows={6} disabled={busy} onChange={(e) => setBody(e.target.value)} /></label>
         <div className="row">

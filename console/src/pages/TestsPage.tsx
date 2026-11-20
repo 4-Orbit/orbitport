@@ -1,11 +1,13 @@
 import { Intro, Term } from "../components/Help.tsx";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.ts";
 import { useDraft } from "../draft.tsx";
 import type { Decision, TestCase, TestReport } from "../types.ts";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { SourcePicker, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
-import { useVersions } from "./shared.ts";
+import { useKeys, useRepositories, useSchema, useSourceAgents, useVersions } from "./shared.ts";
+import { EntityPicker } from "../components/EntityPicker.tsx";
+import { actionGroups, resourceField, resourceForAction, resourceProblem, resourceTypeOf } from "../resource-fields.ts";
 import { Pager } from "../components/Pager.tsx";
 
 const TESTS_PER_PAGE = 50;
@@ -14,6 +16,9 @@ const TESTS_PER_PAGE = 50;
 export function TestsPage() {
   const draft = useDraft();
   const versions = useVersions();
+  const schema = useSchema();
+  const keys = useKeys();
+  const repositories = useRepositories();
   const [tests, setTests] = useState<TestCase[] | null>(null);
   const [dirty, setDirty] = useState(false);
   const [choice, setChoice] = useState<SourceChoice>("draft");
@@ -23,6 +28,16 @@ export function TestsPage() {
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [newCase, setNewCase] = useState<TestCase>({ name: "", agentId: "", action: "kms.Encrypt", resource: { type: "Key", id: "" }, expect: "DENY" });
+
+  const agents = useSourceAgents(choice, draft);
+  const keyAliases = useMemo(() => (keys.data ?? []).map((k) => k.alias), [keys.data]);
+  const actionOptions = useMemo(() => actionGroups(schema?.actions ?? []), [schema]);
+  const newType = resourceTypeOf(newCase.action, schema?.actions);
+  const newField = resourceField(newType);
+  const newProblem = resourceProblem(newType, newCase.resource.id);
+  const resourceOptions = { keys: keyAliases, repositories: repositories.data ?? [] };
+  const changeAction = (action: string) =>
+    setNewCase({ ...newCase, action, resource: { type: resourceTypeOf(action, schema?.actions), id: resourceForAction(newType, resourceTypeOf(action, schema?.actions), newCase.resource.id, resourceOptions) } });
 
   useEffect(() => {
     api.tests().then((r) => setTests(r.tests)).catch((e: Error) => setStatus({ tone: "error", text: e.message }));
@@ -103,26 +118,72 @@ export function TestsPage() {
           <span className="muted small">or use "Save as test case" in the simulator</span>
         </header>
         <form
-          className="panel-body row wrap"
+          className="panel-body sim-form"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!newCase.resource.id || !newCase.action) return;
+            if (newProblem || !newCase.action) return;
             const name = newCase.name || `${newCase.agentId || "(account)"} ${newCase.action} ${newCase.resource.id}`;
-            edit([...(tests ?? []), { ...newCase, name, agentId: newCase.agentId || undefined }]);
-            setNewCase({ ...newCase, name: "", resource: { type: "Key", id: "" } });
+            edit([...(tests ?? []), { ...newCase, name, agentId: newCase.agentId || undefined, resource: { type: newType, id: newCase.resource.id } }]);
+            setNewCase({ ...newCase, name: "" });
           }}
         >
-          <input aria-label="Name" placeholder="name (optional)" value={newCase.name} onChange={(e) => setNewCase({ ...newCase, name: e.target.value })} />
-          <input aria-label="Agent" placeholder="agent (empty = account)" value={newCase.agentId ?? ""} onChange={(e) => setNewCase({ ...newCase, agentId: e.target.value.trim() })} />
-          <input aria-label="Action" placeholder="kms.Encrypt" value={newCase.action} onChange={(e) => setNewCase({ ...newCase, action: e.target.value.trim() })} />
-          <input aria-label="Key" placeholder="key alias" value={newCase.resource.id} onChange={(e) => setNewCase({ ...newCase, resource: { type: "Key", id: e.target.value.trim() } })} />
-          <select aria-label="Expect" value={newCase.expect} onChange={(e) => setNewCase({ ...newCase, expect: e.target.value as Decision })}>
-            <option value="ALLOW">expect ALLOW</option>
-            <option value="DENY">expect DENY</option>
-          </select>
-          <button type="submit" className="button">
-            Add
-          </button>
+          <label className="field">
+            <span>Name</span>
+            <input placeholder="optional" value={newCase.name} onChange={(e) => setNewCase({ ...newCase, name: e.target.value })} />
+          </label>
+          <EntityPicker
+            label="Agent"
+            value={newCase.agentId ?? ""}
+            onChange={(agentId) => setNewCase({ ...newCase, agentId })}
+            options={agents.data ?? []}
+            loading={agents.data === null && !agents.error}
+            error={agents.error}
+            emptyLabel="(account)"
+            allowOther
+            noun="an agent"
+            placeholder="agent id (not registered yet)"
+          />
+          <label className="field">
+            <span>Action</span>
+            <select value={newCase.action} onChange={(e) => changeAction(e.target.value)}>
+              {!actionOptions.some(([, names]) => names.includes(newCase.action)) && <option value={newCase.action}>{newCase.action}</option>}
+              {actionOptions.map(([group, names]) => (
+                <optgroup key={group} label={group}>
+                  {names.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          <EntityPicker
+            key={newType}
+            label={newField.label}
+            value={newCase.resource.id}
+            onChange={(id) => setNewCase({ ...newCase, resource: { type: newType, id } })}
+            options={newType === "Repository" ? (repositories.data ?? []) : keyAliases}
+            loading={newType === "Repository" ? repositories.data === null && !repositories.error : keys.data === null}
+            error={newType === "Repository" ? repositories.error : keys.error}
+            allowOther
+            noun={`a ${newField.noun}`}
+            placeholder={newField.placeholder}
+            problem={newProblem}
+            note={newType === "Key" && keys.more ? `Showing the first ${keyAliases.length} keys; use Other… for any other alias.` : undefined}
+          />
+          <label className="field">
+            <span>Expect</span>
+            <select value={newCase.expect} onChange={(e) => setNewCase({ ...newCase, expect: e.target.value as Decision })}>
+              <option value="ALLOW">ALLOW</option>
+              <option value="DENY">DENY</option>
+            </select>
+          </label>
+          <div className="row">
+            <button type="submit" className="button" disabled={newProblem !== null}>
+              Add
+            </button>
+          </div>
         </form>
       </section>
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api.ts";
 import { appendPolicy, fromPolicyJson, removeSpan, replaceSpan, toCedar, type Rule } from "../rules.ts";
 import { entityIds, useDraft } from "../draft.tsx";
 import type { KeyInfo, ValidateResult } from "../types.ts";
 import type { GrantRequest } from "../explain.ts";
 import { RuleCard } from "./RuleCard.tsx";
 import { RuleBuilder } from "./RuleBuilder.tsx";
+import { useRepositories } from "../pages/shared.ts";
 
 interface Props {
   validation: ValidateResult | null;
@@ -30,13 +30,9 @@ type Editing = { kind: "new"; prefill?: Omit<Rule, "id"> } | { kind: "edit"; ind
 /** The plain-language view of the draft's policies, with the rule builder. */
 export function RulesView({ validation, validatedText, keys, moreKeys = false, onEditCedar, onChanged, grant = null, onGrantHandled }: Props) {
   const draft = useDraft();
-  const [repositories, setRepositories] = useState<string[]>([]);
-  const [repositoryError, setRepositoryError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    api.githubRepositories().then((r) => { if (!cancelled) setRepositories(r.repositories); }).catch((e: Error) => { if (!cancelled) setRepositoryError(e.message); });
-    return () => { cancelled = true; };
-  }, []);
+  const repos = useRepositories();
+  const repositories = repos.data ?? [];
+  const repositoryError = repos.error;
   // Edits use the validated spans, so they wait until validation catches up.
   const stale = validatedText !== draft.policies;
   const [editing, setEditing] = useState<Editing>(null);
@@ -78,6 +74,18 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
 
   const roles = entityIds(draft.entities, "Role");
   const agents = entityIds(draft.entities, "Agent");
+
+  // A failed request (no `policies` at all) says nothing about the text.
+  if (validation && validation.policies === undefined) {
+    return (
+      <div className="rules-empty">
+        <p>
+          <strong>Couldn't check your draft just now</strong>, so the rules can't be shown yet. Trying again in a few seconds; your draft is unchanged.
+        </p>
+        <p className="muted small">{validation.problems[0]?.message}</p>
+      </div>
+    );
+  }
 
   if (infos === null && validation) {
     return (
@@ -136,7 +144,8 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
         <RuleBuilder key={JSON.stringify(editing.prefill ?? null)} initial={null} prefill={editing.prefill} roles={roles} agents={agents} keys={keys} repositories={repositories} repositoryError={repositoryError} moreKeys={moreKeys} referencedKeys={validation?.summary?.referencedKeys ?? []} takenIds={takenIds} onSave={save} onCancel={() => setEditing(null)} />
       )}
 
-      {cards.length === 0 && editing === null && (
+      {validation === null && editing === null && <p className="muted small rules-checking">Checking your rules…</p>}
+      {validation !== null && cards.length === 0 && editing === null && (
         <div className="rules-empty">
           <p>
             <strong>No rules yet.</strong> Agents can't do anything until a rule allows it. Account tokens (such as the operator's) always keep full access.
@@ -172,6 +181,7 @@ export function RulesView({ validation, validatedText, keys, moreKeys = false, o
               text={c.text}
               problems={(validation?.problems ?? []).filter((p) => p.policyId && p.policyId === c.info.id)}
               disabled={stale || editing !== null}
+              agents={agents}
               onEdit={() => setEditing({ kind: "edit", index: c.index })}
               onEditCedar={onEditCedar}
               onDelete={() => {

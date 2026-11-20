@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { RulesView } from "../components/RulesView.tsx";
-import { ConfirmButton, Toast, type ToastState } from "../components/Confirm.tsx";
+import { ConfirmButton, ConfirmDialog, Toast, type ToastState } from "../components/Confirm.tsx";
+import { removePolicies, rulesNamingAgent } from "../agent-removal.ts";
 import { DraftStatus } from "../components/DraftStatus.tsx";
 import { Intro, Term } from "../components/Help.tsx";
 import { api } from "../api.ts";
 import { entityIds, rolesOf, useDraft } from "../draft.tsx";
-import type { CellChange, EntityJson, TestCase, ValidateResult } from "../types.ts";
+import type { CellChange, EntityJson, PolicyInfo, TestCase, ValidateResult } from "../types.ts";
 import { appendSnippet, CedarEditor } from "../components/CedarEditor.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { useKeys, useSchema, useVersionState } from "./shared.ts";
@@ -128,16 +129,26 @@ export function PoliciesPage() {
 
   // Debounced live validation with the enforcement engine. The result keeps
   // the exact text it describes, because rule cards edit by text position.
+  // A failed request is not a verdict on the draft: it has no `policies`
+  // (unlike a parse error's null) and is retried.
+  const [validateRetry, setValidateRetry] = useState(0);
   useEffect(() => {
     const text = draft.policies;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const t = setTimeout(() => {
       api
         .validate(draft.bundle)
         .then((result) => setChecked({ text, result }))
-        .catch((e: Error) => setChecked({ text, result: { ok: false, problems: [{ severity: "error", message: e.message }] } }));
+        .catch((e: Error) => {
+          setChecked({ text, result: { ok: false, problems: [{ severity: "error", message: `Couldn't check the draft: ${e.message}` }] } });
+          retry = setTimeout(() => setValidateRetry((n) => n + 1), 4000);
+        });
     }, 350);
-    return () => clearTimeout(t);
-  }, [draft.bundle, draft.policies]);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(retry);
+    };
+  }, [draft.bundle, draft.policies, validateRetry]);
 
   // How many decisions the draft changes vs the active version (status strip).
   useEffect(() => {
@@ -311,6 +322,7 @@ export function PoliciesPage() {
         active={versionState.active}
         known={versionState.loaded}
         valid={validation?.ok ?? true}
+        checkFailed={validation !== null && validation.policies === undefined}
         empty={draft.policies.trim() === "" && draft.entities.length === 0}
         changes={decisionChanges}
       />
@@ -377,9 +389,18 @@ export function PoliciesPage() {
                 <EntitiesTable
                   entities={draft.entities}
                   policies={draft.policies}
+                  checked={checked}
                   onChange={(e, label) => {
                     draft.setEntities(e, label);
                     clearStaleStatus();
+                  }}
+                  onDeleteAgent={(agentId, rules) => {
+                    // One undo step: the agent and (optionally) its rules.
+                    const entities = draft.entities.filter((e) => !(e.uid.type === "Agent" && e.uid.id === agentId));
+                    const policies = rules.length && checked ? removePolicies(checked.text, rules) : draft.policies;
+                    draft.commit({ entities, policies }, rules.length ? `delete agent ${agentId} and ${rules.length} rule${rules.length === 1 ? "" : "s"}` : `delete agent ${agentId}`);
+                    clearStaleStatus();
+                    announce(rules.length ? `Deleted agent ${agentId} and ${rules.length} rule${rules.length === 1 ? "" : "s"} for it.` : `Deleted agent ${agentId}.`);
                   }}
                   onRemoved={announce}
                 />
@@ -470,9 +491,19 @@ function ChangeList({ changes }: { changes: CellChange[] }) {
   );
 }
 
-function EntitiesTable({ entities, policies, onChange, onRemoved }: { entities: EntityJson[]; policies: string; onChange: (e: EntityJson[], label: string) => void; onRemoved: (message: string) => void }) {
+function EntitiesTable({ entities, policies, checked, onChange, onDeleteAgent, onRemoved }: {
+  entities: EntityJson[];
+  policies: string;
+  /** The last validation and the text it describes. */
+  checked: { text: string; result: ValidateResult } | null;
+  onChange: (e: EntityJson[], label: string) => void;
+  /** Delete an agent, and these of its rules, as one change. */
+  onDeleteAgent: (agentId: string, rules: PolicyInfo[]) => void;
+  onRemoved: (message: string) => void;
+}) {
   const roles = entityIds(entities, "Role");
   const agents = entityIds(entities, "Agent");
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [newAgent, setNewAgent] = useState("");
   const [newRole, setNewRole] = useState("");
 
@@ -538,7 +569,9 @@ function EntitiesTable({ entities, policies, onChange, onRemoved }: { entities: 
                   </td>
                 ))}
                 <td>
-                  <ConfirmButton label="remove" ariaLabel={`Remove agent ${a}`} confirmLabel={`Delete agent ${a}`} impact={impact("Agent", a)} onConfirm={() => remove("Agent", a)} />
+                  <button type="button" className="link-button" aria-label={`Remove agent ${a}`} onClick={() => setDeleting(a)}>
+                    remove
+                  </button>
                 </td>
               </tr>
             );
@@ -546,6 +579,18 @@ function EntitiesTable({ entities, policies, onChange, onRemoved }: { entities: 
         </tbody>
       </table>
       </div>
+      {deleting !== null && (
+        <DeleteAgentDialog
+          agentId={deleting}
+          checked={checked}
+          policies={policies}
+          onDelete={(rules) => {
+            setDeleting(null);
+            onDeleteAgent(deleting, rules);
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
       {agents.length === 0 && <p className="muted small">No agents yet. Agents are denied everything until a policy grants them access.</p>}
       <div className="row">
         <input aria-label="New agent id" value={newAgent} placeholder="new-agent-id" onChange={(e) => setNewAgent(e.target.value.toLowerCase())} />
@@ -649,5 +694,72 @@ function ReplaceDraftButton({ label, dirty, onRun }: { label: string; dirty: boo
       impact="Your unsaved edits will be replaced (Undo brings them back)."
       onConfirm={onRun}
     />
+  );
+}
+
+/**
+ * Confirms deleting an agent. Rules for it are listed and deleted with it by
+ * default: left behind, they would apply again to any agent later registered
+ * with the same id. Custom Cedar that mentions it is listed, not changed.
+ */
+function DeleteAgentDialog({ agentId, checked, policies, onDelete, onCancel }: {
+  agentId: string;
+  checked: { text: string; result: ValidateResult } | null;
+  policies: string;
+  onDelete: (rules: PolicyInfo[]) => void;
+  onCancel: () => void;
+}) {
+  // Rule spans index the validated text; wait for validation to catch up.
+  const ready = !!checked && checked.text === policies && Array.isArray(checked.result.policies);
+  const { owned, mentions } = ready ? rulesNamingAgent(checked.result.policies!, checked.text, agentId) : { owned: [], mentions: [] };
+  const n = owned.length;
+  const plural = n === 1 ? "" : "s";
+  const ruleItem = (p: PolicyInfo) => (
+    <li key={`${p.start}-${p.id}`}>
+      <span className={`badge decision ${p.effect === "permit" ? "decision-allow" : "decision-deny"}`}>{p.effect === "permit" ? "ALLOWS" : "BLOCKS"}</span> <code>{p.id || `(no name, line ${p.line})`}</code>
+    </li>
+  );
+  return (
+    <ConfirmDialog
+      title={`Delete agent ${agentId}?`}
+      onCancel={onCancel}
+      actions={
+        !ready
+          ? [{ label: "Checking rules…", onClick: () => undefined, disabled: true }]
+          : n > 0
+            ? [
+                { label: `Delete agent and ${n} rule${plural}`, tone: "danger", onClick: () => onDelete(owned) },
+                { label: "Delete agent only", onClick: () => onDelete([]) },
+              ]
+            : [{ label: "Delete agent", tone: "danger", onClick: () => onDelete([]) }]
+      }
+    >
+      {!ready && <p className="muted">Checking which rules name this agent…</p>}
+      {ready && n > 0 && (
+        <>
+          <p>
+            {n} rule{plural} {n === 1 ? "is" : "are"} written for <code>{agentId}</code>:
+          </p>
+          <ul>{owned.map(ruleItem)}</ul>
+          {owned.some((p) => p.effect === "permit") ? (
+            <p className="builder-warning">
+              Rules left behind match nobody now, but if an agent with the id <code>{agentId}</code> is registered again they grant it access immediately.
+            </p>
+          ) : (
+            <p className="muted">Left behind, {n === 1 ? "this rule" : "these rules"} would block any agent later registered with the id <code>{agentId}</code>.</p>
+          )}
+        </>
+      )}
+      {ready && mentions.length > 0 && (
+        <>
+          <p>
+            {mentions.length} custom Cedar polic{mentions.length === 1 ? "y mentions" : "ies mention"} this agent. {mentions.length === 1 ? "It is" : "They are"} left unchanged; edit {mentions.length === 1 ? "it" : "them"} by hand:
+          </p>
+          <ul>{mentions.map(ruleItem)}</ul>
+        </>
+      )}
+      {ready && n === 0 && mentions.length === 0 && <p>No rules name this agent.</p>}
+      <p className="muted small">Changes your draft only, as one undo step. Nothing is enforced until you save and activate a version.</p>
+    </ConfirmDialog>
   );
 }

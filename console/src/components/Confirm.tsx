@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /**
  * A destructive button that asks inline before acting (never a blocking
@@ -68,5 +68,50 @@ export function Toast({ toast, onUndo, onClose }: { toast: ToastState | null; on
         ×
       </button>
     </div>
+  );
+}
+
+/**
+ * A modal confirmation: the rest of the page can't be used until one of the
+ * actions (or Cancel / Escape) is chosen. A native <dialog> opened with
+ * showModal(), never a blocking browser alert.
+ */
+export function ConfirmDialog({ title, children, actions, onCancel }: {
+  title: string;
+  children: ReactNode;
+  /** The choices, most likely first; the first gets focus. */
+  actions: { label: string; onClick: () => void; tone?: "danger" | "default"; disabled?: boolean }[];
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    return () => d?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="confirm-dialog"
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+    >
+      <h2 id={titleId}>{title}</h2>
+      <div className="confirm-dialog-body">{children}</div>
+      <div className="row confirm-dialog-actions">
+        {actions.map((a, i) => (
+          <button key={a.label} type="button" className={`button${a.tone === "danger" ? " danger" : ""}`} autoFocus={i === 0} disabled={a.disabled} onClick={a.onClick}>
+            {a.label}
+          </button>
+        ))}
+        <button type="button" className="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </dialog>
   );
 }

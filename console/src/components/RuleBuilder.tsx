@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CAPABILITIES, REPOSITORY_ID_RE, suggestId, toCedar, validRuleId, type Effect, type On, type Rule, type Who } from "../rules.ts";
+import { CAPABILITIES, outdatedSuggestedName, REPOSITORY_ID_RE, suggestId, toCedar, validRuleId, type Effect, type On, type Rule, type Who } from "../rules.ts";
 import type { KeyInfo } from "../types.ts";
 import { Sentence } from "./RuleCard.tsx";
 import { toEpoch } from "./SourcePicker.tsx";
@@ -68,6 +68,10 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
   const draftRule: Omit<Rule, "id"> = { effect, who, can: everything ? [] : can, on, ...(untilEpoch !== undefined && { until: untilEpoch }) };
   const id = customId ?? suggestId(draftRule, otherIds);
   const rule: Rule = { ...draftRule, id };
+  // Editing never renames a rule by itself: say when the name was changed,
+  // or when an auto-suggested name no longer describes the rule.
+  const renamedFrom = initial && id !== initial.id ? initial.id : null;
+  const betterName = initial && !renamedFrom ? outdatedSuggestedName(initial, draftRule, otherIds) : null;
 
   const errors: string[] = [];
   if ((who.kind === "role" || who.kind === "agent") && !who.id) errors.push(`Choose ${who.kind === "role" ? "a role" : "an agent"}.`);
@@ -180,7 +184,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
         </fieldset>
 
         <fieldset className="span-2">
-          <legend>Can</legend>
+          <legend>{effect === "forbid" ? "Cannot" : "Can"}</legend>
           {!github && <label className="check">
             <input type="checkbox" checked={everything} onChange={(e) => setEverything(e.target.checked)} />
             <span>
@@ -317,12 +321,28 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
           <input aria-label="Rule name" className="mono" value={id} onChange={(e) => setCustomId(e.target.value.trim())} />
           <p className="muted small">
             Shown in audit and test results.{" "}
-            {customId !== null && (
+            {initial === null && customId !== null && (
               <button type="button" className="link-button" onClick={() => setCustomId(null)}>
                 use suggested name
               </button>
             )}
           </p>
+          {renamedFrom && (
+            <p className="builder-warning">
+              Renamed from <code>{renamedFrom}</code>. Past activity and saved versions keep the old name.{" "}
+              <button type="button" className="link-button" onClick={() => setCustomId(renamedFrom)}>
+                undo rename
+              </button>
+            </p>
+          )}
+          {betterName && (
+            <p className="muted small">
+              This name no longer matches the rule. Suggested: <code>{betterName}</code>{" "}
+              <button type="button" className="link-button" onClick={() => setCustomId(betterName)}>
+                use suggested name
+              </button>
+            </p>
+          )}
         </fieldset>
       </div>
 
