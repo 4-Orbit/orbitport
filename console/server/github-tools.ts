@@ -67,6 +67,21 @@ const readTool = (name: string, description: string): GithubTool => ({
 GITHUB_TOOLS.push(
   readTool("read_file", "Read one file. Returns its text content."),
   readTool("list_directory", "List the files and folders in a directory."),
+  {
+    name: "comment_on_issue",
+    description: "Add a comment to an existing issue.",
+    parameters: {
+      type: "object",
+      properties: { number: { type: "integer", description: "Issue number" }, body: { type: "string", description: "Comment text (Markdown)" } },
+      required: ["number", "body"],
+    },
+    method: "github.issue.Comment",
+    params: (a, s) => {
+      if (!only(a, ["number", "body"]) || !int(a.number) || !str(a.body, 16_384) || !a.body.trim()) return "number (a positive integer) and body (1–16384 characters) are required";
+      return { repository: s.repository, number: a.number, body: a.body };
+    },
+    summary: (a) => `comment on #${String(a.number)}`,
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);

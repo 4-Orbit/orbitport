@@ -105,3 +105,15 @@ func TestRealProviderReadsContentsWithAReadOnlyToken(t *testing.T) {
 		t.Fatalf("404: %v", err)
 	}
 }
+
+func TestRealProviderCommentsWithAnIssuesToken(t *testing.T) {
+	p := fakeGithub(t, `{"permissions":{"issues":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+		if r.Method != "POST" || r.URL.Path != "/repos/test-owner/test-repo/issues/5/comments" || body["body"] != "hi" {
+			t.Fatalf("wrong comment %s %s %v", r.Method, r.URL, body)
+		}
+		return 201, `{"id":77}`
+	})
+	if id, err := p.Comment(context.Background(), "test-owner/test-repo", 5, "hi"); err != nil || id != 77 {
+		t.Fatalf("%d %v", id, err)
+	}
+}

@@ -47,6 +47,8 @@ type provider interface {
 	Create(ctx context.Context, repo, title, body string) (int64, error)
 	// ReadContents returns a file or a directory listing at ref ("" = default branch).
 	ReadContents(ctx context.Context, repo, path, ref string) (contents, error)
+	// Comment adds a comment to an issue and returns the comment id.
+	Comment(ctx context.Context, repo string, number int64, body string) (int64, error)
 }
 
 // contents is a file (Content set) or a directory (Entries set).
@@ -165,6 +167,7 @@ type handler func(p *Plugin, c *proto.GithubCallRequest) (operation, error)
 var handlers = map[string]handler{
 	CreateAction:           (*Plugin).createIssue,
 	"github.contents.Read": (*Plugin).readContents,
+	"github.issue.Comment": (*Plugin).commentIssue,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -289,6 +292,44 @@ func (p *Plugin) readContents(c *proto.GithubCallRequest) (operation, error) {
 			return outcome{Ref: args.Ref, Output: got}, nil
 		},
 	}, nil
+}
+
+// attribution marks text written through Orbitport, so GitHub (where every
+// agent appears as the App) shows which agent and request it came from. It
+// is informational only and never used for authorization.
+func attribution(text string, c *proto.GithubCallRequest, requestID string) string {
+	who := "the account"
+	if c.AgentId != "" {
+		who = "agent `" + c.AgentId + "`"
+	}
+	return strings.TrimRight(text, "\n") + "\n\n---\n_Sent through Orbitport by " + who + " (request `" + requestID + "`)._"
+}
+
+type commentParams struct {
+	Repository string `json:"repository"`
+	Number     int64  `json:"number"`
+	Body       string `json:"body"`
+}
+
+func (p *Plugin) commentIssue(c *proto.GithubCallRequest) (operation, error) {
+	var args commentParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	if !repoRE.MatchString(args.Repository) || args.Number <= 0 || strings.TrimSpace(args.Body) == "" || len(args.Body) > 60000 {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, issue number and body (1–60000 bytes)")
+	}
+	return operation{action: "github.issue.Comment", repository: args.Repository, run: func(ctx context.Context, requestID string) (outcome, error) {
+		id, err := p.provider.Comment(ctx, p.repository, args.Number, attribution(args.Body, c, requestID))
+		if err != nil {
+			return outcome{}, err
+		}
+		out := outcome{Number: args.Number}
+		if p.mode == "real" {
+			out.URL = fmt.Sprintf("https://github.com/%s/issues/%d#issuecomment-%d", p.repository, args.Number, id)
+		}
+		return out, nil
+	}}, nil
 }
 
 // enforce runs one operation through policy, audit and the provider.

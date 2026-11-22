@@ -69,3 +69,38 @@ func TestMockRepositoryReadsFilesAndDirectories(t *testing.T) {
 		t.Fatal("missing path read")
 	}
 }
+
+func TestIssueCommentIsAttributedAndPrivate(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = `@id("comment") permit(principal == Agent::"developer-agent", action == Action::"github.issue.Comment", resource == Repository::"test-owner/test-repo");`
+	r, err := callOp(t, p, "github.issue.Comment", "developer-agent", map[string]any{"repository": repo, "number": 5, "body": "PRIVATE COMMENT"})
+	if err != nil || r.Decision != authz.Allow || r.Status != "SUCCESS" || r.Number != 5 || !strings.Contains(r.URL, "#issuecomment-99") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if !strings.Contains(provider.last, "PRIVATE COMMENT") || !strings.Contains(provider.last, "agent `developer-agent`") || !strings.Contains(provider.last, r.RequestID) {
+		t.Fatalf("not attributed: %q", provider.last)
+	}
+	raw, _ := json.Marshal(policy.events)
+	if strings.Contains(string(raw), "PRIVATE COMMENT") {
+		t.Fatal("comment text reached the audit log")
+	}
+	if r, _ := callOp(t, p, "github.issue.Comment", "security-agent", map[string]any{"repository": repo, "number": 5, "body": "x"}); r.Decision != authz.Deny || provider.calls != 1 {
+		t.Fatal("unpermitted agent commented")
+	}
+	for _, bad := range []map[string]any{{"repository": repo, "number": 0, "body": "x"}, {"repository": repo, "number": 1, "body": " "}} {
+		if _, err := callOp(t, p, "github.issue.Comment", "developer-agent", bad); err == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+}
+
+func TestMockCommentNeedsAnExistingIssue(t *testing.T) {
+	m, ctx := newMockRepo(), context.Background()
+	if _, err := m.Comment(ctx, repo, 1, "x"); err == nil {
+		t.Fatal("commented on a missing issue")
+	}
+	n, _ := m.Create(ctx, repo, "t", "b")
+	if _, err := m.Comment(ctx, repo, n, "x"); err != nil {
+		t.Fatal(err)
+	}
+}

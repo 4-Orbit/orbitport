@@ -13,8 +13,12 @@ import (
 // deliberate typo, for agent demos). State lives in memory and is lost when
 // the plugin restarts.
 type mockRepo struct {
-	mu            sync.Mutex
-	issues        int64
+	mu sync.Mutex
+	// next is the next issue or pull request number (they share numbers, as
+	// on GitHub); issues holds each issue's comment count.
+	next          int64
+	issues        map[int64]int
+	comments      int64
 	defaultBranch string
 	// branches maps a branch name to its files (path -> content).
 	branches map[string]map[string]string
@@ -22,6 +26,8 @@ type mockRepo struct {
 
 func newMockRepo() *mockRepo {
 	return &mockRepo{
+		next:          1,
+		issues:        map[int64]int{},
 		defaultBranch: "main",
 		branches: map[string]map[string]string{
 			"main": {
@@ -37,8 +43,21 @@ func newMockRepo() *mockRepo {
 func (m *mockRepo) Create(context.Context, string, string, string) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.issues++
-	return m.issues, nil
+	n := m.next
+	m.next++
+	m.issues[n] = 0
+	return n, nil
+}
+
+func (m *mockRepo) Comment(_ context.Context, _ string, number int64, _ string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.issues[number]; !ok {
+		return 0, precondition{"issue not found"}
+	}
+	m.issues[number]++
+	m.comments++
+	return m.comments, nil
 }
 
 func (m *mockRepo) ReadContents(_ context.Context, _ string, path, ref string) (contents, error) {

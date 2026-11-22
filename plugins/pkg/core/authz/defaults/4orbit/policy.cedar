@@ -69,3 +69,11 @@ permit (
   resource == Repository::"demo-owner/orbitport-test"
 )
 unless { context.path like "secrets/*" };
+
+// Developers may comment on issues and pull requests in the mock repository.
+@id("developer-comment-demo-repo")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.issue.Comment",
+  resource == Repository::"demo-owner/orbitport-test"
+);

@@ -107,3 +107,11 @@ test("read tools map to github.contents.Read with the fixed repository", async (
     { method: "github.contents.Read", params: { repository: "owner/repo", path: "" } },
   ]);
 });
+
+test("comment_on_issue needs a positive issue number", async () => {
+  const gemini = fakeGemini([[call("comment_on_issue", { number: -1, body: "x" }), call("comment_on_issue", { number: 3, body: "looks good" }, "c2")], [text("ok")]]);
+  const calls: string[] = [];
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (method, params) => (calls.push(`${method} ${params.number}`), { result: { decision: "ALLOW", status: "SUCCESS" } }));
+  assert.deepEqual(calls, ["github.issue.Comment 3"]);
+  assert.ok(run.steps[0].error);
+});

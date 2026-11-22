@@ -1145,5 +1145,25 @@
       "path": "README.md"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent comment demo-owner/orbitport-test",
+    "agentId": "developer-agent",
+    "action": "github.issue.Comment",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent comment demo-owner/orbitport-test",
+    "agentId": "security-agent",
+    "action": "github.issue.Comment",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "DENY"
   }
 ]

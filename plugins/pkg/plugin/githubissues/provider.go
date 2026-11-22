@@ -217,3 +217,20 @@ func (p *realProvider) ReadContents(ctx context.Context, repo, path, ref string)
 	}
 	return out, nil
 }
+
+func (p *realProvider) Comment(ctx context.Context, repo string, number int64, body string) (int64, error) {
+	token, err := p.token(ctx, repo, map[string]string{"issues": "write"})
+	if err != nil {
+		return 0, err
+	}
+	var comment struct {
+		ID int64 `json:"id"`
+	}
+	if err := p.request(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), token, map[string]string{"body": body}, &comment, http.StatusCreated); err != nil {
+		return 0, notFound(err, "issue")
+	}
+	if comment.ID <= 0 {
+		return 0, fmt.Errorf("invalid comment response")
+	}
+	return comment.ID, nil
+}

@@ -199,7 +199,8 @@
       },
       "can": [
         "github.issue.Create",
-        "github.contents.Read"
+        "github.contents.Read",
+        "github.issue.Comment"
       ],
       "on": {
         "kind": "repositories",
@@ -208,7 +209,7 @@
         ]
       }
     },
-    "cedar": "@id(\"github-developer-read-and-create\")\npermit (\n  principal in Role::\"developer\",\n  action in [Action::\"github.issue.Create\", Action::\"github.contents.Read\"],\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
+    "cedar": "@id(\"github-developer-read-and-create\")\npermit (\n  principal in Role::\"developer\",\n  action in [Action::\"github.issue.Create\", Action::\"github.contents.Read\", Action::\"github.issue.Comment\"],\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
     "json": {
       "annotations": {
         "id": "github-developer-read-and-create"
@@ -231,6 +232,10 @@
           {
             "type": "Action",
             "id": "github.contents.Read"
+          },
+          {
+            "type": "Action",
+            "id": "github.issue.Comment"
           }
         ]
       },

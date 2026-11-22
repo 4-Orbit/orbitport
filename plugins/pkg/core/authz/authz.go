@@ -126,6 +126,7 @@ var (
 var actionGroups = map[string]string{
 	"github.issue.Create":    "github.write",
 	"github.contents.Read":   "github.read",
+	"github.issue.Comment":   "github.write",
 	"kms.Encrypt":            "use",
 	"kms.Decrypt":            "use",
 	"kms.Sign":               "use",
@@ -152,6 +153,7 @@ var actionGroups = map[string]string{
 var actionResource = map[string]string{
 	"github.issue.Create":    "Repository",
 	"github.contents.Read":   "Repository",
+	"github.issue.Comment":   "Repository",
 	"kms.ListKeys":           "KeyNamespace",
 	"kms_keystore.Put":       "KeyStoreKey",
 	"kms_keystore.Get":       "KeyStoreKey",

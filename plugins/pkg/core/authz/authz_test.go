@@ -344,6 +344,8 @@ func githubOperationTests() []TestCase {
 		read("developer-agent", "README.md", Allow),
 		read("developer-agent", "secrets/token.txt", Deny),
 		read("security-agent", "README.md", Deny),
+		{Name: "developer-agent comment demo-owner/orbitport-test", AgentID: "developer-agent", Action: "github.issue.Comment", Resource: demo, Expect: Allow},
+		{Name: "security-agent comment demo-owner/orbitport-test", AgentID: "security-agent", Action: "github.issue.Comment", Resource: demo, Expect: Deny},
 	}
 }
 

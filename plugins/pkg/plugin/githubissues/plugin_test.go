@@ -45,6 +45,8 @@ type providerStub struct {
 	calls int
 	audit *policyStub
 	fail  bool
+	// last records the text the provider was asked to write.
+	last string
 }
 
 func (p *providerStub) Create(context.Context, string, string, string) (int64, error) {
@@ -61,6 +63,13 @@ func (p *providerStub) ReadContents(_ context.Context, _ string, path, ref strin
 	p.mustFollowDecision()
 	p.calls++
 	return contents{Type: "file", Path: path, Content: "FILE CONTENT SECRET"}, nil
+}
+
+func (p *providerStub) Comment(_ context.Context, _ string, number int64, body string) (int64, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = body
+	return 99, nil
 }
 
 // mustFollowDecision panics unless the decision audit was recorded first.
