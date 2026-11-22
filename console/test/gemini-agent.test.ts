@@ -160,3 +160,16 @@ test("merge_pull_request needs the reviewed head commit", async () => {
   assert.deepEqual(calls, [{ repository: "owner/repo", number: 4, expectedHeadSha: head }]);
   assert.equal(run.steps[1].decision, "DENY");
 });
+
+test("a Gemini rate limit is waited out once, as asked", async () => {
+  let n = 0;
+  const waits: number[] = [];
+  const fetchImpl = (async () => {
+    n++;
+    if (n === 1) return new Response("{}", { status: 429, headers: { "retry-after": "3" } });
+    return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [text("done")] } }] }), { status: 200 });
+  }) as typeof fetch;
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl, sleep: async (ms) => void waits.push(ms) }).run({ task: "t", scope, mode: "mock" }, async () => ({ result: {} }));
+  assert.equal(run.stopped, "done");
+  assert.deepEqual(waits, [3000]);
+});

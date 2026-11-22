@@ -90,12 +90,14 @@ export function createGeminiAgent({
   fetchImpl = fetch,
   now = Date.now,
   tools = GITHUB_TOOLS,
+  sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
 }: {
   apiKey: string;
   model?: string;
   fetchImpl?: typeof fetch;
   now?: () => number;
   tools?: GithubTool[];
+  sleep?: (ms: number) => Promise<void>;
 }): GeminiAgent {
   if (!apiKey?.trim()) throw new Error("Gemini API key is required");
   if (!/^gemini-[a-z0-9.-]+$/.test(model)) throw new Error("Invalid Gemini model");
@@ -116,8 +118,11 @@ export function createGeminiAgent({
       } catch (e) {
         return { error: e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? "Gemini timed out." : "Gemini could not be reached." };
       }
-      if (res.status === 503 && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 750));
+      // 503: briefly unavailable. 429: the API key's rate limit; wait as
+      // asked (Retry-After), at most 10 seconds, then try once more.
+      if ((res.status === 503 || res.status === 429) && attempt === 0) {
+        const asked = Number(res.headers.get("retry-after"));
+        await sleep(res.status === 503 ? 750 : Math.min(Number.isFinite(asked) && asked > 0 ? asked * 1000 : 5000, 10_000));
         continue;
       }
       if (!res.ok) return { error: `Gemini API HTTP ${res.status} ${STATUS_CODES[res.status] || "Error"}` };

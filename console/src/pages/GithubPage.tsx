@@ -76,7 +76,7 @@ export function GithubPage() {
 
   const simulated = simulation?.results[0];
   return <div className="stack">
-    <header><h1>GitHub issues</h1><p>Create one issue as a registered agent. The active policy decides whether it can proceed.</p></header>
+    <header><h1>GitHub</h1><p>Act in the configured repository as a registered agent: create an issue yourself, or let Gemini work on a task. The active policy decides every request.</p></header>
     <div className={`banner ${mode === "real" ? "banner-error" : ""}`}>
       {mode === "real" ? "LIVE · Allowed requests create real GitHub issues." : mode === "mock" ? "MOCK · Exercises authorization and audit without contacting GitHub." : repositories.error ? "The GitHub service is unavailable." : "Connecting to the GitHub service…"}
     </div>

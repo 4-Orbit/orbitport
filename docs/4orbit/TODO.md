@@ -17,7 +17,7 @@ Sizes: **S** ≈ ½–1 day, **M** ≈ 2–3 days, **L** ≈ 4–5 days.
 | Console | Activity, Access, Policies (Cedar editor and plain-language rule builder), Simulate, Tests, Versions, Agents, GitHub, Help | `console/` |
 | Console usability | Undo and confirmations; Draft → Saved → Active status strip; glossary and help; **Why was this denied?** with **Grant this…** (PR #13); **Run it for real** (PR #13); paging for versions, activity, keys and the access grid (PR #10); deleting an agent offers to delete its rules; pickers for agents, keys and repositories; rate-limit handling | `console/src` |
 | Save and activate | Activate straight from the Policies page, with the test gate in place | `feat/save-and-activate` |
-| GitHub issues | `github.issue.Create` on a `Repository` resource, enforced by `plugin-github` with the same engine and audit. Mock and real (GitHub App) modes; plain-language GitHub rules (PRs #16, #17) | `plugins/pkg/plugin/githubissues`, [`github.md`](github.md) |
+| GitHub operations | Issues, comments, file reads, branches, commits, pull requests, reviews and merges on a `Repository` resource, enforced by `plugin-github` with the same engine and audit, with trusted context (D-035). Mock and real (GitHub App) modes; plain-language GitHub rules; a console Gemini agent whose every tool call is decided by Cedar | `plugins/pkg/plugin/githubissues`, [`github.md`](github.md) |
 | Delegated credentials | Process-local, scoped, short-lived credentials for one external action (PRs #1–#4). Not yet wired to an operation route | `gateway/src/agent_delegation.rs`, [`docs/ucsb-capstone-agent-delegation.md`](../ucsb-capstone-agent-delegation.md) |
 | Tooling | `4orbit.compose.yaml`, the seed, `scripts/4orbit/rpc.sh`, `make 4orbit-*`, `make 4orbit-e2e`, console CI, the console browser e2e (`npm run e2e:browser`) | repo root, `scripts/4orbit` |
 
@@ -74,12 +74,13 @@ The seeded keys are real Transit keys, but OpenBao runs in dev mode (in memory, 
 
 ### Phase 5: GitHub operations (≈ 3 weeks)
 
-Issue creation on one configured repository works. The design for the rest is in [`github.md`](github.md#whats-next).
+Issues, comments, file reads, branches, commits, pull requests, reviews and merges work on one configured repository ([`github.md`](github.md#operations)). The design for the rest is in [`github.md`](github.md#whats-next).
 
 - [ ] **App private key in OpenBao (M).** Store the PEM in the KMS key-store, readable only by `plugin-github`. Later, Transit key import so the key can't be read back out (needs a platform-only import path in the KMS plugin).
 - [ ] **Repository discovery (M).** Fill `github.ListRepositories` from `GET /installation/repositories`, so a repository selected in the App becomes governable with no config change.
 - [ ] **Access grid for repositories (M).** Agents × GitHub actions × repositories on Access, and repositories in Simulate's explanations.
-- [ ] **More actions (L).** `github.issue.List`, `Get`, `Comment` (`github.read` / `github.write`), then `github.contents.Read` and `github.pr.Propose` (the plugin creates `agent/<id>/<request>` and opens a PR; agents never get a push token). Forbid `github.pr.Merge` for agents by default.
+- [x] **More actions (L).** `github.contents.Read`, `issue.Comment`, `branch.Create`, `commit.Create`, `pr.Create`, `pr.Get`, `pr.Review` and `pr.Merge`, with trusted context (D-035) and a console Gemini agent that uses them. See [`github.md`](github.md#operations).
+- [ ] **`github.issue.List` / `Get` (S).** Read issues, for triage agents.
 - [ ] **Generalize the audit fields (S).** `providerCalled`, `providerOperation` and `providerResult` instead of `kms*`/`github*`, and update the e2e redaction checks.
 - [ ] **Idempotency and quotas (M).** An idempotency key (a hidden `requestId` marker checked before creating), and per-agent rate quotas in `plugin-github` that trip before GitHub's limits.
 - [ ] **Delegated credentials: wire or retire (S).** Either route an operation through `agent_delegation.rs` and `authz.Evaluate`, or remove it in favor of agent PATs (recommended unless the external call happens outside the gateway).
@@ -97,7 +98,7 @@ Before agents act on their own, operators need to see what a change would break.
 - [ ] **MCP GitHub tools (M).** `github_*` tools in `crates/mcp-core/src/tools.rs` that call the gateway with the agent's own PAT, like the KMS tools.
 - [ ] **Gemini CLI in a sandbox (M).** A container with Gemini CLI, the MCP server and an agent PAT, and **no other path to GitHub**: no `gh` login, no git credentials, no App key, and the built-in shell and web tools off or restricted. Done when Gemini creates and comments on issues, and a denied action shows on Activity with an explanation.
 - [ ] **Runner and Runs page (L).** Start a run (agent, repository, task, time limit), see status and logs, stop it (kill the container, then optionally a policy change). The runner is a separate service, as privileged as the console. Uses the Phase 3 token refresh.
-- [ ] **Approvals (M, later).** A `PENDING` result and an approval queue for actions marked as needing a human. Until then, "a human merges the PR" is the approval.
+- [ ] **Approvals (M, later).** A `PENDING` result and an approval queue for actions marked as needing a human. Until then, `context.humanApprovals` on `github.pr.Merge` is the approval.
 
 ### Phase 8: polish and scale (≈ 1.5 weeks)
 
@@ -123,6 +124,6 @@ For mentors and SpaceComputer:
 For the team:
 
 7. **GitHub repository tags.** Should custom properties or topics (e.g. `agents=allowed`) become Cedar tags? Anyone with repo admin rights could then grant agents access.
-8. **Branch and path rules** ("only `agent/*` branches", "never `.github/workflows/`") need trusted context beyond `currentTime`. That changes a recorded decision and needs a new D-0xx.
+8. ~~**Branch and path rules**~~ Decided in D-035 (trusted context computed by `plugin-github`).
 9. **Version names:** unique or not? Recommendation: not unique, warn on duplicates.
 10. **Who reads the plain-language view?** If non-engineers, keep it the default; if engineers, remember the last mode per user.
