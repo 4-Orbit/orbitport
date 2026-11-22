@@ -460,3 +460,27 @@ func TestFailuresCarryAReasonAndDotIsTheRoot(t *testing.T) {
 		t.Fatal("reason reached the audit log")
 	}
 }
+
+func TestPullGetWithoutANumberListsOpenPullRequests(t *testing.T) {
+	p, policy, _ := setup()
+	policy.policies = `@id("get") permit(principal is Agent, action == Action::"github.pr.Get", resource == Repository::"test-owner/test-repo");`
+	r, err := callOp(t, p, "github.pr.Get", "deployment-agent", map[string]any{"repository": repo})
+	if err != nil || r.Decision != authz.Allow {
+		t.Fatalf("%+v %v", r, err)
+	}
+	list := r.Output.(map[string]any)["openPullRequests"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["number"] != float64(26) || list[0].(map[string]any)["headSha"] != agentPull {
+		t.Fatalf("list %v", list)
+	}
+	raw, _ := json.Marshal(policy.events)
+	if strings.Contains(string(raw), "Update README.md") {
+		t.Fatal("pull request titles reached the audit log")
+	}
+	m, ctx := newMockRepo(), context.Background()
+	_, _ = m.CreateBranch(ctx, repo, "agent/a/x", "")
+	_, _ = m.Commit(ctx, repo, "agent/a/x", "m", []fileChange{{Path: "a", Content: "b"}})
+	n, _ := m.OpenPull(ctx, repo, "agent/a/x", "main", "t", "b")
+	if got, _ := m.OpenPulls(ctx, repo); len(got) != 1 || got[0].Number != n {
+		t.Fatalf("mock list %v", got)
+	}
+}

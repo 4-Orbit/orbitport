@@ -553,3 +553,32 @@ func (p *realProvider) Merge(ctx context.Context, repo string, number int64, hea
 	}
 	return merged.SHA, nil
 }
+
+func (p *realProvider) OpenPulls(ctx context.Context, repo string) ([]pullSummary, error) {
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read", "contents": "read"})
+	if err != nil {
+		return nil, err
+	}
+	var pulls []struct {
+		Number int64  `json:"number"`
+		Title  string `json:"title"`
+		Head   struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+		User struct {
+			Type string `json:"type"`
+		} `json:"user"`
+	}
+	if err := p.request(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls?state=open&per_page=%d", repo, maxListedPulls), token, nil, &pulls, http.StatusOK); err != nil {
+		return nil, err
+	}
+	out := make([]pullSummary, 0, len(pulls))
+	for _, pr := range pulls {
+		out = append(out, pullSummary{Number: pr.Number, Title: pr.Title, HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, BaseBranch: pr.Base.Ref, AuthorIsApp: pr.User.Type == "Bot"})
+	}
+	return out, nil
+}

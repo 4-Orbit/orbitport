@@ -137,6 +137,12 @@ func (p *providerStub) Merge(_ context.Context, _ string, _ int64, head, method 
 	return "fedcba9876543210fedcba9876543210fedcba98", nil
 }
 
+func (p *providerStub) OpenPulls(context.Context, string) ([]pullSummary, error) {
+	p.mustFollowDecision()
+	p.calls++
+	return []pullSummary{{Number: 26, Title: "Update README.md", HeadBranch: "agent/developer-agent/x", HeadSHA: agentPull, BaseBranch: "main", AuthorIsApp: true}}, nil
+}
+
 // mustFollowDecision panics unless the decision audit was recorded first.
 func (p *providerStub) mustFollowDecision() {
 	if len(p.audit.events) == 0 || p.audit.events[len(p.audit.events)-1].Stage != "decision" {

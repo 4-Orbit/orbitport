@@ -174,6 +174,14 @@ GITHUB_TOOLS.push(
     summary: (a) => `${String(a.event ?? "").toLowerCase().replace("_", " ")} review on #${String(a.number)}`,
   },
   {
+    name: "list_pull_requests",
+    description: "List the repository's open pull requests (number, title, head branch, head commit id, base branch). Use it to find a pull request instead of guessing numbers.",
+    parameters: { type: "object", properties: {} },
+    method: "github.pr.Get",
+    params: (a, s) => (only(a, []) ? { repository: s.repository } : "list_pull_requests takes no arguments"),
+    summary: () => "list open pull requests",
+  },
+  {
     name: "get_pull_request",
     description: "Read a pull request's state: head branch and head commit id (needed to merge), base branch, GitHub's mergeable state and how many people approved the current head.",
     parameters: { type: "object", properties: { number: { type: "integer", description: "Pull request number" } }, required: ["number"] },

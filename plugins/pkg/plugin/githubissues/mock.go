@@ -284,3 +284,16 @@ func (m *mockRepo) Merge(_ context.Context, _ string, number int64, head, _ stri
 	pr.merged = true
 	return m.heads[pr.base], nil
 }
+
+func (m *mockRepo) OpenPulls(context.Context, string) ([]pullSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []pullSummary{}
+	for n, pr := range m.pulls {
+		if !pr.merged {
+			out = append(out, pullSummary{Number: n, Title: "pull request " + pr.head, HeadBranch: pr.head, HeadSHA: m.heads[pr.head], BaseBranch: pr.base, AuthorIsApp: true})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Number > out[j].Number })
+	return out, nil
+}

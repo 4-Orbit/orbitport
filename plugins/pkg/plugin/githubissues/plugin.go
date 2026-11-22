@@ -62,6 +62,8 @@ type provider interface {
 	OpenPull(ctx context.Context, repo, head, base, title, body string) (int64, error)
 	// Pull reads a pull request (a lookup).
 	Pull(ctx context.Context, repo string, number int64) (pullInfo, error)
+	// OpenPulls lists open pull requests, newest first (at most maxListedPulls).
+	OpenPulls(ctx context.Context, repo string) ([]pullSummary, error)
 	// Review submits a review. human is true only for the account principal
 	// in mock mode, which stands in for a person reviewing on GitHub.
 	Review(ctx context.Context, repo string, number int64, event, body string, human bool) (int64, error)
@@ -70,6 +72,19 @@ type provider interface {
 	// Merge merges the pull request only if its head is still head, and
 	// returns the merge commit id.
 	Merge(ctx context.Context, repo string, number int64, head, method string) (string, error)
+}
+
+// maxListedPulls bounds a pull request listing.
+const maxListedPulls = 50
+
+// pullSummary is one entry of a pull request listing.
+type pullSummary struct {
+	Number      int64  `json:"number"`
+	Title       string `json:"title"`
+	HeadBranch  string `json:"headBranch"`
+	HeadSHA     string `json:"headSha"`
+	BaseBranch  string `json:"baseBranch"`
+	AuthorIsApp bool   `json:"authorIsApp"`
 }
 
 // pullInfo is what the plugin needs to know about a pull request.
@@ -698,9 +713,10 @@ func (p *Plugin) mergePull(c *proto.GithubCallRequest) (operation, error) {
 	}, nil
 }
 
+// getPullParams: with a number, one pull request; without, the open ones.
 type getPullParams struct {
 	Repository string `json:"repository"`
-	Number     int64  `json:"number"`
+	Number     int64  `json:"number,omitempty"`
 }
 
 // pullView is what github.pr.Get returns: enough to review and to merge
@@ -721,8 +737,17 @@ func (p *Plugin) getPull(c *proto.GithubCallRequest) (operation, error) {
 	if err := decode(c.ParamsJson, &args); err != nil {
 		return operation{}, err
 	}
-	if !repoRE.MatchString(args.Repository) || args.Number <= 0 {
-		return operation{}, status.Error(codes.InvalidArgument, "expected repository and pull request number")
+	if !repoRE.MatchString(args.Repository) || args.Number < 0 {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository and an optional pull request number (omit it to list open pull requests)")
+	}
+	if args.Number == 0 {
+		return operation{action: "github.pr.Get", repository: args.Repository, run: func(ctx context.Context, _ string) (outcome, error) {
+			list, err := p.provider.OpenPulls(ctx, p.repository)
+			if err != nil {
+				return outcome{}, err
+			}
+			return outcome{Output: map[string]any{"openPullRequests": list}}, nil
+		}}, nil
 	}
 	return operation{action: "github.pr.Get", repository: args.Repository, run: func(ctx context.Context, _ string) (outcome, error) {
 		pr, err := p.provider.Pull(ctx, p.repository, args.Number)

@@ -286,3 +286,16 @@ func TestRealProviderClassifiesPullRequestRefusals(t *testing.T) {
 		}
 	}
 }
+
+func TestRealProviderListsOpenPullRequests(t *testing.T) {
+	p := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"read"},"repositories":["test-repo"]}`, func(r *http.Request, _ map[string]any) (int, string) {
+		if r.Method != "GET" || r.URL.Path != "/repos/test-owner/test-repo/pulls" || r.URL.Query().Get("state") != "open" {
+			t.Fatalf("wrong list %s %s", r.Method, r.URL)
+		}
+		return 200, `[{"number":26,"title":"Update README.md","head":{"ref":"agent/dev/x","sha":"abc"},"base":{"ref":"main"},"user":{"type":"Bot"}}]`
+	})
+	list, err := p.OpenPulls(context.Background(), "test-owner/test-repo")
+	if err != nil || len(list) != 1 || list[0].Number != 26 || !list[0].AuthorIsApp {
+		t.Fatalf("%v %v", list, err)
+	}
+}

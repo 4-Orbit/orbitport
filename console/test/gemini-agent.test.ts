@@ -211,3 +211,11 @@ test("an allowed call that fails keeps its reason", async () => {
   const response = (gemini.requests[1].contents[2].parts[0] as { functionResponse: { response: { output: { reason: string } } } }).functionResponse.response;
   assert.match(response.output.reason, /contents: read/);
 });
+
+test("list_pull_requests reads open pull requests through github.pr.Get", async () => {
+  const gemini = fakeGemini([[call("list_pull_requests", {})], [text("ok")]]);
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "real", allowedMethods: new Set(["github.pr.Get"]) }, async (method, params) => (calls.push({ method, params }), { result: { decision: "ALLOW", status: "SUCCESS" } }));
+  assert.deepEqual(calls, [{ method: "github.pr.Get", params: { repository: "owner/repo" } }]);
+  assert.match(gemini.requests[0].systemInstruction.parts[0].text, /never guess a pull request number/);
+});

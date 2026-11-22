@@ -51,6 +51,7 @@ export function stepHelp(s: AgentStep, ctx: { repository: string; agentId: strin
     [/head is now/, "The pull request changed since it was checked", ["Review the new commits, then merge naming the new head commit."]],
     [/person must approve/, "Agents can't approve this", ["Every agent acts as the GitHub App, and GitHub doesn't let an App approve a pull request it opened. A person approves it on GitHub."]],
     [/already exists/, "It already exists", ["Choose another branch name, or use the existing branch."]],
+    [/pull request not found/, "No such pull request", ["Issues and pull requests share one numbering, so a number may belong to an issue. Ask the agent to list the open pull requests (list_pull_requests), or give it the number from GitHub."]],
     [/not found/, "Not found", ["Check the path, branch or number. Reads use the default branch unless a ref is given."]],
     [/closed/, "The pull request is closed", ["Reopen it on GitHub, or open a new one."]],
     [/head invalid|base invalid/, "GitHub couldn't use a branch", ["Check that both branches exist. On a private repository the App also needs Contents: read."]],

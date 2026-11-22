@@ -11,7 +11,7 @@ GitHub is a second service enforced the same way as KMS: every `github.*` operat
 | `github.issue.Create` | `github.write` | — | issues: write | developers |
 | `github.issue.Comment` | `github.write` | — | issues: write | developers |
 | `github.contents.Read` | `github.read` | `path` | contents: read | developers, except `secrets/` |
-| `github.pr.Get` | `github.read` | — | pull_requests: read, contents: read | any agent |
+| `github.pr.Get` | `github.read` | — | pull_requests: read, contents: read | any agent (one pull request by number, or the open ones without) |
 | `github.branch.Create` | `github.code` | `branch`, `isDefaultBranch`, `branchAgent?` | contents: write | developers, own `agent/<id>/` branches |
 | `github.commit.Create` | `github.code` | branch fields + `paths`, `touchesWorkflows` | contents: write | developers, own branches, never `.github/workflows/` |
 | `github.pr.Create` | `github.pr` | `headBranch`, `baseBranch`, `isDefaultBase`, `headAgent?` | pull_requests: write, contents: read | developers, from own branches |
