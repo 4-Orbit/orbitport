@@ -1411,5 +1411,95 @@
       "headBranch": "agent/security-agent/fix"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 1 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 0 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 0,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 1 approvals (blocked)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "blocked"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/deployment-agent/fix with 1 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "deployment-agent",
+      "headBranch": "agent/deployment-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent merge agent/security-agent/fix with 1 approvals (clean)",
+    "agentId": "developer-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
   }
 ]

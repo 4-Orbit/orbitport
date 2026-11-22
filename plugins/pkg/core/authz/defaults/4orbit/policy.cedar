@@ -127,3 +127,23 @@ forbid (
   resource
 )
 when { context has headAgent && context.headAgent == principal };
+
+// Deployment agents merge pull requests into the default branch, only once a
+// person has approved the current head and GitHub reports it mergeable with
+// passing checks ("clean").
+@id("deployment-merge-approved")
+permit (
+  principal in Role::"deployment",
+  action == Action::"github.pr.Merge",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+when { context.humanApprovals >= 1 && context.mergeableState == "clean" };
+
+// No agent merges its own pull request.
+@id("no-agent-merges-own-pull")
+forbid (
+  principal is Agent,
+  action == Action::"github.pr.Merge",
+  resource
+)
+when { context has headAgent && context.headAgent == principal };

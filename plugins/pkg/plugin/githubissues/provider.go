@@ -426,3 +426,62 @@ func (p *realProvider) Review(ctx context.Context, repo string, number int64, ev
 	}
 	return review.ID, nil
 }
+
+func (p *realProvider) HumanApprovals(ctx context.Context, repo string, number int64, head string) (int64, error) {
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read"})
+	if err != nil {
+		return 0, err
+	}
+	var reviews []struct {
+		State    string `json:"state"`
+		CommitID string `json:"commit_id"`
+		User     struct {
+			Login string `json:"login"`
+			Type  string `json:"type"`
+		} `json:"user"`
+	}
+	if err := p.request(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews?per_page=100", repo, number), token, nil, &reviews, http.StatusOK); err != nil {
+		return 0, notFound(err, "pull request")
+	}
+	// Reviews come oldest first; a person's latest decisive review counts.
+	latest := map[string]bool{}
+	for _, r := range reviews {
+		if r.User.Type != "User" || r.User.Login == "" {
+			continue
+		}
+		switch r.State {
+		case "APPROVED":
+			latest[r.User.Login] = r.CommitID == head
+		case "CHANGES_REQUESTED", "DISMISSED":
+			latest[r.User.Login] = false
+		}
+	}
+	var n int64
+	for _, approved := range latest {
+		if approved {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (p *realProvider) Merge(ctx context.Context, repo string, number int64, head, method string) (string, error) {
+	token, err := p.token(ctx, repo, map[string]string{"contents": "write", "pull_requests": "write"})
+	if err != nil {
+		return "", err
+	}
+	var merged struct {
+		SHA    string `json:"sha"`
+		Merged bool   `json:"merged"`
+	}
+	if err := p.request(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, number), token, map[string]string{"sha": head, "merge_method": method}, &merged, http.StatusOK); err != nil {
+		if r, ok := err.(refusal); ok && (r.status == http.StatusMethodNotAllowed || r.status == http.StatusConflict || r.status == http.StatusUnprocessableEntity) {
+			return "", precondition{"GitHub refused the merge: the pull request isn't mergeable (branch protection, conflicts or a newer head)"}
+		}
+		return "", err
+	}
+	if !merged.Merged || !commitIDRE.MatchString(merged.SHA) {
+		return "", fmt.Errorf("invalid merge response")
+	}
+	return merged.SHA, nil
+}

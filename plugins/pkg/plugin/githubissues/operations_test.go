@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/core/authz"
 )
@@ -339,5 +340,87 @@ func TestMockAccountReviewsStandInForPeople(t *testing.T) {
 	r, err := callOp(t, p, "github.pr.Review", "", map[string]any{"repository": repo, "number": n, "event": "APPROVE"})
 	if err != nil || r.Status != "SUCCESS" || len(mock.pulls[n].reviews) != 1 || !mock.pulls[n].reviews[0].human {
 		t.Fatalf("account approval in mock mode: %+v %v", r, err)
+	}
+}
+
+func TestMergeNeedsAPersonAndACleanPullRequest(t *testing.T) {
+	p, policy, provider := setup()
+	provider.pull = pullInfo{HeadRef: "agent/developer-agent/fix", HeadSHA: agentPull, BaseRef: "main", Open: true, AuthorIsApp: true, MergeableState: "clean"}
+	policy.policies = `@id("merge") permit(principal == Agent::"deployment-agent", action == Action::"github.pr.Merge", resource == Repository::"test-owner/test-repo") when { context.humanApprovals >= 1 && context.mergeableState == "clean" };
+@id("not-own") forbid(principal is Agent, action == Action::"github.pr.Merge", resource) when { context has headAgent && context.headAgent == principal };`
+	merge := func(agent string) (Result, error) {
+		return callOp(t, p, "github.pr.Merge", agent, map[string]any{"repository": repo, "number": 12, "expectedHeadSha": agentPull})
+	}
+	if r, _ := merge("deployment-agent"); r.Decision != authz.Deny || provider.calls != 0 {
+		t.Fatalf("merged without a human approval: %+v", r)
+	}
+	provider.approvals = 1
+	r, err := merge("deployment-agent")
+	if err != nil || r.Decision != authz.Allow || r.Status != "SUCCESS" || r.SHA == "" || provider.last != agentPull+"|squash" || r.Context["humanApprovals"] != float64(1) {
+		t.Fatalf("%+v %v %q", r, err, provider.last)
+	}
+	provider.pull.MergeableState = "blocked"
+	if r, _ := merge("deployment-agent"); r.Decision != authz.Deny {
+		t.Fatal("merged a blocked pull request")
+	}
+	provider.pull.MergeableState = "clean"
+	provider.pull.HeadRef = "agent/deployment-agent/fix"
+	if r, _ := merge("deployment-agent"); r.Decision != authz.Deny {
+		t.Fatal("merged its own pull request")
+	}
+	// A new push since the review is refused before deciding.
+	calls := provider.calls
+	if _, err := callOp(t, p, "github.pr.Merge", "deployment-agent", map[string]any{"repository": repo, "number": 12, "expectedHeadSha": strings.Repeat("a", 40)}); err == nil || provider.calls != calls {
+		t.Fatalf("merged an unexpected head: %v", err)
+	}
+	for _, bad := range []map[string]any{
+		{"repository": repo, "number": 12},
+		{"repository": repo, "number": 12, "expectedHeadSha": "main"},
+		{"repository": repo, "number": 12, "expectedHeadSha": agentPull, "method": "force"},
+	} {
+		if _, err := callOp(t, p, "github.pr.Merge", "deployment-agent", bad); err == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+}
+
+// The whole flow in mock mode, decided by the default 4Orbit template:
+// a developer proposes a change, security reviews it, a person approves and
+// a deployment agent merges.
+func TestMockFlowUnderTheDefaultTemplate(t *testing.T) {
+	bundle := authz.DefaultBundle()
+	policy := &policyStub{policies: bundle.Policies, entities: string(bundle.Entities)}
+	mock := newMockRepo()
+	p := &Plugin{policy: policy, provider: mock, repository: "demo-owner/orbitport-test", tenant: "tenant-a", mode: "mock", now: func() time.Time { return time.Unix(1_700_000_000, 0) }}
+	demo := "demo-owner/orbitport-test"
+	step := func(agent, method string, params map[string]any, want authz.Decision) Result {
+		t.Helper()
+		params["repository"] = demo
+		r, err := callOp(t, p, method, agent, params)
+		if err != nil {
+			t.Fatalf("%s %s: %v", agent, method, err)
+		}
+		if r.Decision != want || (want == authz.Allow && r.Status != "SUCCESS") {
+			t.Fatalf("%s %s: want %s, got %+v", agent, method, want, r)
+		}
+		return r
+	}
+	branch := "agent/developer-agent/fix-typo"
+	readme := step("developer-agent", "github.contents.Read", map[string]any{"path": "README.md"}, authz.Allow)
+	step("developer-agent", "github.contents.Read", map[string]any{"path": "secrets/README.md"}, authz.Deny)
+	step("developer-agent", "github.branch.Create", map[string]any{"branch": branch}, authz.Allow)
+	step("developer-agent", "github.branch.Create", map[string]any{"branch": "main"}, authz.Deny)
+	fixed := strings.Replace(readme.Output.(map[string]any)["content"].(string), "tryy", "try", 1)
+	commit := step("developer-agent", "github.commit.Create", map[string]any{"branch": branch, "message": "Fix typo", "files": []map[string]any{{"path": "README.md", "content": fixed}}}, authz.Allow)
+	step("developer-agent", "github.commit.Create", map[string]any{"branch": branch, "message": "CI", "files": []map[string]any{{"path": ".github/workflows/ci.yml", "content": "x"}}}, authz.Deny)
+	pr := step("developer-agent", "github.pr.Create", map[string]any{"head": branch, "title": "Fix typo", "body": "Fixes README"}, authz.Allow)
+	step("security-agent", "github.pr.Review", map[string]any{"number": pr.Number, "event": "REQUEST_CHANGES", "body": "Looks fine, one nit"}, authz.Allow)
+	step("developer-agent", "github.pr.Review", map[string]any{"number": pr.Number, "event": "COMMENT", "body": "Self-review"}, authz.Deny)
+	step("deployment-agent", "github.pr.Merge", map[string]any{"number": pr.Number, "expectedHeadSha": commit.SHA}, authz.Deny)
+	step("", "github.pr.Review", map[string]any{"number": pr.Number, "event": "APPROVE"}, authz.Allow)
+	step("developer-agent", "github.pr.Merge", map[string]any{"number": pr.Number, "expectedHeadSha": commit.SHA}, authz.Deny)
+	step("deployment-agent", "github.pr.Merge", map[string]any{"number": pr.Number, "expectedHeadSha": commit.SHA}, authz.Allow)
+	if f, _ := mock.ReadContents(context.Background(), demo, "README.md", "main"); !strings.Contains(f.Content, "used to try ") {
+		t.Fatalf("main not updated: %q", f.Content)
 	}
 }

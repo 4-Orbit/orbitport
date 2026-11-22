@@ -240,3 +240,44 @@ func (m *mockRepo) Review(_ context.Context, _ string, number int64, event, _ st
 	pr.reviews = append(pr.reviews, mockReview{event: event, human: human, sha: m.heads[pr.head]})
 	return int64(len(pr.reviews)), nil
 }
+
+func (m *mockRepo) HumanApprovals(_ context.Context, _ string, number int64, head string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.pulls[number]
+	if !ok {
+		return 0, precondition{"pull request not found"}
+	}
+	var n int64
+	for _, r := range pr.reviews {
+		if r.human && r.event == "APPROVE" && r.sha == head {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *mockRepo) Merge(_ context.Context, _ string, number int64, head, _ string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.pulls[number]
+	if !ok || pr.merged {
+		return "", precondition{"pull request not found"}
+	}
+	if m.heads[pr.head] != head {
+		return "", precondition{"GitHub refused the merge: the pull request isn't mergeable (branch protection, conflicts or a newer head)"}
+	}
+	base := m.branches[pr.base]
+	for path := range base {
+		if _, ok := m.branches[pr.head][path]; !ok {
+			delete(base, path)
+		}
+	}
+	for path, content := range m.branches[pr.head] {
+		base[path] = content
+	}
+	m.commits++
+	m.heads[pr.base] = mockSHA(m.commits)
+	pr.merged = true
+	return m.heads[pr.base], nil
+}

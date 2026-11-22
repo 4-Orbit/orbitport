@@ -227,3 +227,33 @@ func TestRealProviderReadsAndReviewsPullRequests(t *testing.T) {
 		t.Fatalf("%d %v", id, err)
 	}
 }
+
+func TestRealProviderCountsPeopleAndMergesTheReviewedHead(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	reader := fakeGithub(t, `{"permissions":{"pull_requests":"read"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) {
+		return 200, `[
+			{"state":"APPROVED","commit_id":"` + head + `","user":{"login":"alice","type":"User"}},
+			{"state":"APPROVED","commit_id":"` + head + `","user":{"login":"orbitport[bot]","type":"Bot"}},
+			{"state":"APPROVED","commit_id":"oldsha","user":{"login":"bob","type":"User"}},
+			{"state":"APPROVED","commit_id":"` + head + `","user":{"login":"carol","type":"User"}},
+			{"state":"CHANGES_REQUESTED","commit_id":"` + head + `","user":{"login":"carol","type":"User"}},
+			{"state":"COMMENTED","commit_id":"` + head + `","user":{"login":"alice","type":"User"}}
+		]`
+	})
+	if n, err := reader.HumanApprovals(context.Background(), "test-owner/test-repo", 12, head); err != nil || n != 1 {
+		t.Fatalf("approvals %d %v (only alice counts)", n, err)
+	}
+	merger := fakeGithub(t, `{"permissions":{"contents":"write","pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+		if r.Method != "PUT" || r.URL.Path != "/repos/test-owner/test-repo/pulls/12/merge" || body["sha"] != head || body["merge_method"] != "squash" {
+			t.Fatalf("wrong merge %s %s %v", r.Method, r.URL, body)
+		}
+		return 200, `{"merged":true,"sha":"fedcba9876543210fedcba9876543210fedcba98"}`
+	})
+	if sha, err := merger.Merge(context.Background(), "test-owner/test-repo", 12, head, "squash"); err != nil || sha == "" {
+		t.Fatalf("%s %v", sha, err)
+	}
+	refused := fakeGithub(t, `{"permissions":{"contents":"write","pull_requests":"write"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) { return 405, `{"message":"SECRET"}` })
+	if _, err := refused.Merge(context.Background(), "test-owner/test-repo", 12, head, "squash"); err == nil || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("refusal: %v", err)
+	}
+}

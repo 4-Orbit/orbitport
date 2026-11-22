@@ -72,6 +72,14 @@ var actionContext = map[string][]ContextField{
 		{Name: "headAgent", Type: ContextAgent, Optional: true, Doc: "The agent whose agent/<agent-id>/... branch the pull request proposes."},
 		{Name: "authorIsApp", Type: ContextBool, Doc: "Whether the GitHub App (so, an agent) opened the pull request, read from GitHub."},
 	},
+	"github.pr.Merge": {
+		{Name: "headBranch", Type: ContextString, Doc: "The pull request's branch."},
+		{Name: "baseBranch", Type: ContextString, Doc: "The branch it merges into."},
+		{Name: "isDefaultBase", Type: ContextBool, Doc: "Whether that is the repository's default branch."},
+		{Name: "headAgent", Type: ContextAgent, Optional: true, Doc: "The agent whose agent/<agent-id>/... branch is merged."},
+		{Name: "humanApprovals", Type: ContextLong, Doc: "People (not the App) whose latest review approves the current head commit."},
+		{Name: "mergeableState", Type: ContextString, Doc: "GitHub's mergeable_state: clean, blocked, behind, dirty, unstable, unknown…"},
+	},
 }
 
 // branchContext is the context of every write to a branch.

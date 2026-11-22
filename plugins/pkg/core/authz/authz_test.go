@@ -363,6 +363,10 @@ func githubOperationTests() []TestCase {
 		ctx := map[string]any{"event": event, "headBranch": head, "authorIsApp": true, "headAgent": strings.SplitN(strings.TrimPrefix(head, "agent/"), "/", 2)[0]}
 		return TestCase{Name: agent + " " + strings.ToLower(event) + " review on " + head, AgentID: agent, Action: "github.pr.Review", Resource: demo, Context: ctx, Expect: expect}
 	}
+	merge := func(agent, head string, approvals int, state string, expect Decision) TestCase {
+		ctx := map[string]any{"headBranch": head, "baseBranch": "main", "isDefaultBase": true, "humanApprovals": approvals, "mergeableState": state, "headAgent": strings.SplitN(strings.TrimPrefix(head, "agent/"), "/", 2)[0]}
+		return TestCase{Name: fmt.Sprintf("%s merge %s with %d approvals (%s)", agent, head, approvals, state), AgentID: agent, Action: "github.pr.Merge", Resource: demo, Context: ctx, Expect: expect}
+	}
 	read := func(agent, path string, expect Decision) TestCase {
 		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
 	}
@@ -387,6 +391,11 @@ func githubOperationTests() []TestCase {
 		review("security-agent", "agent/developer-agent/fix", "APPROVE", Deny),
 		review("security-agent", "agent/security-agent/fix", "COMMENT", Deny),
 		review("developer-agent", "agent/security-agent/fix", "COMMENT", Deny),
+		merge("deployment-agent", "agent/developer-agent/fix", 1, "clean", Allow),
+		merge("deployment-agent", "agent/developer-agent/fix", 0, "clean", Deny),
+		merge("deployment-agent", "agent/developer-agent/fix", 1, "blocked", Deny),
+		merge("deployment-agent", "agent/deployment-agent/fix", 1, "clean", Deny),
+		merge("developer-agent", "agent/security-agent/fix", 1, "clean", Deny),
 	}
 }
 

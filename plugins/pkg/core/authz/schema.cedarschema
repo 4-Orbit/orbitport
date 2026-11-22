@@ -37,6 +37,18 @@ type PullCreateContext = { currentTime: Long, headBranch: String, baseBranch: St
 // headAgent is the agent whose branch the pull request proposes, so a policy
 // can forbid reviewing your own work; authorIsApp says the App opened it.
 type ReviewContext = { currentTime: Long, event: String, headBranch: String, headAgent?: Agent, authorIsApp: Bool };
+// A merge. humanApprovals counts people (not the App) whose latest review
+// approves the current head commit; mergeableState is GitHub's
+// mergeable_state ("clean" means mergeable with passing checks).
+type MergeContext = {
+  currentTime: Long,
+  headBranch: String,
+  baseBranch: String,
+  isDefaultBase: Bool,
+  headAgent?: Agent,
+  humanApprovals: Long,
+  mergeableState: String,
+};
 // A commit: the branch fields, every path it adds, changes or deletes, and
 // whether any of them is under .github/workflows/.
 type CommitContext = {
@@ -48,7 +60,13 @@ type CommitContext = {
   touchesWorkflows: Bool,
 };
 
-action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code", "github.pr", "github.review";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code", "github.pr", "github.review", "github.merge";
+
+action "github.pr.Merge" in ["github.merge"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: MergeContext,
+};
 
 action "github.pr.Review" in ["github.review"] appliesTo {
   principal: [Account, Agent],

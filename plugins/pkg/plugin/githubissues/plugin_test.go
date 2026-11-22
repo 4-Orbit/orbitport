@@ -19,13 +19,19 @@ type policyStub struct {
 	unavailable bool
 	rejectAudit bool
 	policies    string
+	// entities defaults to none.
+	entities string
 }
 
 func (p *policyStub) GetActive(context.Context, *proto.GetActiveRequest, ...grpc.CallOption) (*proto.GetActiveResponse, error) {
 	if p.unavailable {
 		return nil, errors.New("offline")
 	}
-	return &proto.GetActiveResponse{Exists: true, Version: 7, Policies: p.policies, EntitiesJson: `[]`}, nil
+	entities := p.entities
+	if entities == "" {
+		entities = `[]`
+	}
+	return &proto.GetActiveResponse{Exists: true, Version: 7, Policies: p.policies, EntitiesJson: entities}, nil
 }
 func (p *policyStub) RecordAudit(_ context.Context, r *proto.RecordAuditRequest, _ ...grpc.CallOption) (*proto.RecordAuditResponse, error) {
 	if p.rejectAudit {
@@ -50,8 +56,9 @@ type providerStub struct {
 	// lookupErr fails every lookup; lookups counts them.
 	lookupErr error
 	lookups   int
-	// pull is what Pull returns.
-	pull pullInfo
+	// pull is what Pull returns; approvals what HumanApprovals returns.
+	pull      pullInfo
+	approvals int64
 }
 
 func (p *providerStub) Create(context.Context, string, string, string) (int64, error) {
@@ -116,6 +123,18 @@ func (p *providerStub) Review(_ context.Context, _ string, _ int64, event, body 
 	p.calls++
 	p.last = event + "|" + body
 	return 4, nil
+}
+
+func (p *providerStub) HumanApprovals(context.Context, string, int64, string) (int64, error) {
+	p.lookups++
+	return p.approvals, p.lookupErr
+}
+
+func (p *providerStub) Merge(_ context.Context, _ string, _ int64, head, method string) (string, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = head + "|" + method
+	return "fedcba9876543210fedcba9876543210fedcba98", nil
 }
 
 // mustFollowDecision panics unless the decision audit was recorded first.

@@ -65,6 +65,11 @@ type provider interface {
 	// Review submits a review. human is true only for the account principal
 	// in mock mode, which stands in for a person reviewing on GitHub.
 	Review(ctx context.Context, repo string, number int64, event, body string, human bool) (int64, error)
+	// HumanApprovals counts people whose latest review approves head (a lookup).
+	HumanApprovals(ctx context.Context, repo string, number int64, head string) (int64, error)
+	// Merge merges the pull request only if its head is still head, and
+	// returns the merge commit id.
+	Merge(ctx context.Context, repo string, number int64, head, method string) (string, error)
 }
 
 // pullInfo is what the plugin needs to know about a pull request.
@@ -204,6 +209,7 @@ var handlers = map[string]handler{
 	"github.commit.Create": (*Plugin).createCommit,
 	"github.pr.Create":     (*Plugin).createPull,
 	"github.pr.Review":     (*Plugin).reviewPull,
+	"github.pr.Merge":      (*Plugin).mergePull,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -622,6 +628,69 @@ func (p *Plugin) reviewPull(c *proto.GithubCallRequest) (operation, error) {
 			out := outcome{Number: args.Number}
 			if p.mode == "real" {
 				out.URL = fmt.Sprintf("https://github.com/%s/pull/%d#pullrequestreview-%d", p.repository, args.Number, id)
+			}
+			return out, nil
+		},
+	}, nil
+}
+
+type mergeParams struct {
+	Repository      string `json:"repository"`
+	Number          int64  `json:"number"`
+	ExpectedHeadSHA string `json:"expectedHeadSha"`
+	Method          string `json:"method,omitempty"`
+}
+
+func (p *Plugin) mergePull(c *proto.GithubCallRequest) (operation, error) {
+	var args mergeParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	if args.Method == "" {
+		args.Method = "squash"
+	}
+	validMethod := args.Method == "merge" || args.Method == "squash" || args.Method == "rebase"
+	if !repoRE.MatchString(args.Repository) || args.Number <= 0 || !commitIDRE.MatchString(args.ExpectedHeadSHA) || !validMethod {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, pull request number, expectedHeadSha (the 40-character head commit you reviewed) and an optional method (merge, squash or rebase)")
+	}
+	return operation{
+		action:     "github.pr.Merge",
+		repository: args.Repository,
+		timeout:    20 * time.Second,
+		lookup: func(ctx context.Context) (map[string]any, error) {
+			pr, err := p.provider.Pull(ctx, p.repository, args.Number)
+			if err != nil {
+				return nil, err
+			}
+			if !pr.Open {
+				return nil, precondition{"the pull request is closed or already merged"}
+			}
+			// Merge exactly what was reviewed: a new push means review again.
+			if pr.HeadSHA != args.ExpectedHeadSHA {
+				return nil, precondition{"the pull request's head is now " + pr.HeadSHA + ", not the expected commit; check what changed before merging"}
+			}
+			def, err := p.provider.DefaultBranch(ctx, p.repository)
+			if err != nil {
+				return nil, err
+			}
+			approvals, err := p.provider.HumanApprovals(ctx, p.repository, args.Number, pr.HeadSHA)
+			if err != nil {
+				return nil, err
+			}
+			out := map[string]any{"headBranch": pr.HeadRef, "baseBranch": pr.BaseRef, "isDefaultBase": pr.BaseRef == def, "humanApprovals": approvals, "mergeableState": pr.MergeableState}
+			if agent := branchAgent(pr.HeadRef); agent != "" {
+				out["headAgent"] = agent
+			}
+			return out, nil
+		},
+		run: func(ctx context.Context, _ string) (outcome, error) {
+			sha, err := p.provider.Merge(ctx, p.repository, args.Number, args.ExpectedHeadSHA, args.Method)
+			if err != nil {
+				return outcome{}, err
+			}
+			out := outcome{Number: args.Number, SHA: sha}
+			if p.mode == "real" {
+				out.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.repository, args.Number)
 			}
 			return out, nil
 		},

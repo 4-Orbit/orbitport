@@ -150,3 +150,13 @@ test("review_pull_request requires a body unless approving", async () => {
   assert.ok(run.steps[0].error);
   assert.deepEqual(calls, [{ repository: "owner/repo", number: 4, event: "REQUEST_CHANGES", body: "Add a test" }]);
 });
+
+test("merge_pull_request needs the reviewed head commit", async () => {
+  const head = "0123456789abcdef0123456789abcdef01234567";
+  const gemini = fakeGemini([[call("merge_pull_request", { number: 4, expected_head_sha: "main" }), call("merge_pull_request", { number: 4, expected_head_sha: head }, "c2")], [text("ok")]]);
+  const calls: Record<string, unknown>[] = [];
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (_m, params) => (calls.push(params), { result: { decision: "DENY", status: "DENIED" } }));
+  assert.ok(run.steps[0].error);
+  assert.deepEqual(calls, [{ repository: "owner/repo", number: 4, expectedHeadSha: head }]);
+  assert.equal(run.steps[1].decision, "DENY");
+});

@@ -173,6 +173,27 @@ GITHUB_TOOLS.push(
     },
     summary: (a) => `${String(a.event ?? "").toLowerCase().replace("_", " ")} review on #${String(a.number)}`,
   },
+  {
+    name: "merge_pull_request",
+    description:
+      "Merge a pull request. expected_head_sha must be the head commit id you reviewed (for example the sha commit_files returned); if the pull request changed since, the merge is refused and you must review again.",
+    parameters: {
+      type: "object",
+      properties: {
+        number: { type: "integer", description: "Pull request number" },
+        expected_head_sha: { type: "string", description: "40-character head commit id" },
+        method: { type: "string", enum: ["squash", "merge", "rebase"], description: "Defaults to squash" },
+      },
+      required: ["number", "expected_head_sha"],
+    },
+    method: "github.pr.Merge",
+    params: (a, s) => {
+      if (!only(a, ["number", "expected_head_sha", "method"]) || !int(a.number) || typeof a.expected_head_sha !== "string" || !/^[0-9a-f]{40}$/.test(a.expected_head_sha)) return "number and expected_head_sha (40 hex characters)";
+      if (a.method !== undefined && !["squash", "merge", "rebase"].includes(String(a.method))) return "method is squash, merge or rebase";
+      return { repository: s.repository, number: a.number, expectedHeadSha: a.expected_head_sha, ...(a.method ? { method: a.method } : {}) };
+    },
+    summary: (a) => `merge #${String(a.number)} at ${String(a.expected_head_sha ?? "").slice(0, 7)}${a.method ? ` (${String(a.method)})` : ""}`,
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);
