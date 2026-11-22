@@ -8,10 +8,12 @@
  * verbatim, which keeps the thought signatures multi-turn calling requires.
  */
 import { STATUS_CODES } from "node:http";
-import { GITHUB_TOOLS, toolByName, type GithubTool, type ToolScope } from "./github-tools.ts";
+import { GITHUB_TOOLS, type GithubTool, type ToolScope } from "./github-tools.ts";
 
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 export const MAX_TOOL_CALLS = 12;
+/** Denials in a row that end a run without asking Gemini again. */
+export const MAX_DENIALS_IN_A_ROW = 3;
 export const RUN_TIME_LIMIT_MS = 120_000;
 const TURN_TIMEOUT_MS = 30_000;
 /** File contents and other outputs are cut to this before Gemini sees them. */
@@ -35,17 +37,21 @@ export interface AgentStep {
 
 export interface AgentRun {
   steps: AgentStep[];
-  /** Gemini's closing message. */
+  /** Gemini's closing message, or the console's when the run was cut short. */
   final: string | null;
-  stopped: "done" | "step_limit" | "time_limit" | "gemini_error";
+  /** nothing_allowed: the policy allows none of the tools, so Gemini wasn't called. denied: stopped after repeated denials. */
+  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied";
   error?: string;
+  /** The tools Gemini was offered. */
+  tools: string[];
 }
 
 /** Calls one github.* method as the run's agent. */
 export type GithubCaller = (method: string, params: Record<string, unknown>) => Promise<{ result?: unknown; error?: string }>;
 
 export interface GeminiAgent {
-  run(input: { task: string; scope: ToolScope; mode: "mock" | "real" | null }, call: GithubCaller): Promise<AgentRun>;
+  /** allowedMethods: offer only tools for these github.* methods (from the preflight); all when omitted. */
+  run(input: { task: string; scope: ToolScope; mode: "mock" | "real" | null; allowedMethods?: Set<string> }, call: GithubCaller): Promise<AgentRun>;
 }
 
 interface Part {
@@ -102,9 +108,9 @@ export function createGeminiAgent({
   if (!apiKey?.trim()) throw new Error("Gemini API key is required");
   if (!/^gemini-[a-z0-9.-]+$/.test(model)) throw new Error("Invalid Gemini model");
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  const declarations = tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
 
-  async function turn(contents: Content[], system: string): Promise<{ content?: Content; error?: string }> {
+  async function turn(contents: Content[], system: string, offered: GithubTool[]): Promise<{ content?: Content; error?: string }> {
+    const declarations = offered.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
     for (let attempt = 0; attempt < 2; attempt++) {
       let res: Response;
       try {
@@ -135,20 +141,26 @@ export function createGeminiAgent({
   }
 
   return {
-    async run({ task, scope, mode }, call) {
+    async run({ task, scope, mode, allowedMethods }, call) {
+      const offered = allowedMethods ? tools.filter((t) => allowedMethods.has(t.method)) : tools;
+      const names = offered.map((t) => t.name);
+      if (offered.length === 0) {
+        return { steps: [], final: `The active policy allows ${scope.agentId} none of the GitHub tools in ${scope.repository}, so Gemini wasn't called.`, stopped: "nothing_allowed", tools: names };
+      }
       const started = now();
-      const system = instructions(scope, mode, tools);
+      const system = instructions(scope, mode, offered);
       const contents: Content[] = [{ role: "user", parts: [{ text: task }] }];
       const steps: AgentStep[] = [];
+      let denialsInARow = 0;
       for (;;) {
-        if (now() - started > RUN_TIME_LIMIT_MS) return { steps, final: null, stopped: "time_limit" };
-        const { content, error } = await turn(contents, system);
-        if (!content) return { steps, final: null, stopped: "gemini_error", error };
+        if (now() - started > RUN_TIME_LIMIT_MS) return { steps, final: null, stopped: "time_limit", tools: names };
+        const { content, error } = await turn(contents, system, offered);
+        if (!content) return { steps, final: null, stopped: "gemini_error", error, tools: names };
         contents.push(content);
         const calls = content.parts.filter((p) => p.functionCall);
         if (calls.length === 0) {
           const text = content.parts.map((p) => p.text ?? "").join("").trim();
-          return { steps, final: text || null, stopped: "done" };
+          return { steps, final: text || null, stopped: "done", tools: names };
         }
         const responses: Part[] = [];
         for (const part of calls) {
@@ -159,7 +171,7 @@ export function createGeminiAgent({
           if (steps.length >= MAX_TOOL_CALLS || now() - started > RUN_TIME_LIMIT_MS) {
             response = { error: "The run's limit was reached; no more tool calls are allowed. Summarize and stop." };
           } else {
-            const tool = toolByName(name);
+            const tool = offered.find((t) => t.name === name);
             const params = tool ? tool.params(args, scope) : `unknown tool ${name}`;
             if (!tool || typeof params === "string") {
               steps.push({ tool: name || "(unnamed)", summary: tool ? tool.summary(args) : name, error: typeof params === "string" ? params : "unknown tool" });
@@ -185,16 +197,22 @@ export function createGeminiAgent({
                     }),
               });
               response = out.error ? { error: out.error } : toolResponse(out.result);
+              denialsInARow = r.decision === "DENY" ? denialsInARow + 1 : 0;
             }
           }
           responses.push({ functionResponse: { name, ...(fc.id && { id: fc.id }), response } });
         }
         contents.push({ role: "user", parts: responses });
+        // Repeated denials: the policy doesn't allow this work. Stop without
+        // spending another Gemini turn on a summary.
+        if (denialsInARow >= MAX_DENIALS_IN_A_ROW) {
+          return { steps, final: `Stopped after ${denialsInARow} denied calls in a row: the active policy doesn't allow this work for ${scope.agentId}.`, stopped: "denied", tools: names };
+        }
         if (steps.length >= MAX_TOOL_CALLS && calls.length > 0) {
           // One more turn lets Gemini summarize; further calls are refused above.
-          const { content: last } = await turn(contents, system);
+          const { content: last } = await turn(contents, system, offered);
           const text = last?.parts.map((p) => p.text ?? "").join("").trim();
-          return { steps, final: text || null, stopped: "step_limit" };
+          return { steps, final: text || null, stopped: "step_limit", tools: names };
         }
       }
     },

@@ -11,15 +11,22 @@ import { GeminiError, type GeminiIssueClient } from "../server/gemini.ts";
 const agentToken = `header.${Buffer.from('{"jti":"gemini-agent-run"}').toString("base64url")}.signature`;
 const baseRequest = { agentId: "developer-agent", repository: "owner/repo", prompt: "Report a login bug", confirmCreate: true };
 
-async function fixture(gemini?: GeminiIssueClient) {
+/** decision: what the active policy says in the console's precheck (policy.Simulate). */
+async function fixture(gemini?: GeminiIssueClient, decision: "ALLOW" | "DENY" = "ALLOW") {
   const dir = mkdtempSync(join(tmpdir(), "orbitport-gemini-route-"));
   const tokenFile = join(dir, "operator.pat");
   writeFileSync(tokenFile, "operator-secret");
   const seen: Array<{ method: string; auth: string | null; params: Record<string, unknown> }> = [];
+  let prechecks = 0;
   const gateway: Server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const call = JSON.parse(body) as { method: string; params: Record<string, unknown> };
+    if (call.method === "policy.Simulate") {
+      prechecks++;
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result: { results: [{ decision }] } }));
+      return;
+    }
     seen.push({ method: call.method, auth: req.headers.authorization ?? null, params: call.params });
     const result = call.method === "policy.IssueAgentToken" ? { token: agentToken } :
       { decision: "ALLOW", status: "SUCCESS", requestId: "issue-1", mode: "mock", issueNumber: 1 };
@@ -30,7 +37,7 @@ async function fixture(gemini?: GeminiIssueClient) {
   const app = createApp({ gatewayUrl, tokenFile, gemini });
   await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
-  return { base, seen, tokenFile, close: async () => {
+  return { base, seen, tokenFile, prechecks: () => prechecks, close: async () => {
     await new Promise<void>((resolve) => app.close(() => resolve()));
     await new Promise<void>((resolve) => gateway.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });
@@ -92,4 +99,16 @@ test("Gemini tasks are limited before provider calls", async (t) => {
   for (let i = 0; i < 5; i++) assert.equal((await submit(f.base)).status, 200);
   assert.equal((await submit(f.base)).status, 429);
   assert.equal(proposals, 5);
+});
+
+test("an issue the active policy denies never reaches Gemini", async (t) => {
+  let proposals = 0;
+  const f = await fixture({ async proposeIssue() { proposals++; return { title: "A", body: "B" }; } }, "DENY");
+  t.after(f.close);
+  const res = await submit(f.base);
+  assert.equal(res.status, 403);
+  assert.match((await res.json() as { error: string }).error, /Gemini wasn't called/);
+  assert.equal(f.prechecks(), 1);
+  assert.equal(proposals, 0);
+  assert.equal(f.seen.length, 0, "no agent token, no issue");
 });

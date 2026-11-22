@@ -4,6 +4,8 @@ import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
 import { parseRunRequest, parseGithubIssueRequest, RunError, Runner } from "./run.ts";
 import { GeminiError, type GeminiIssueClient } from "./gemini.ts";
 import type { GeminiAgent } from "./gemini-agent.ts";
+import { allowedMethods as allowedMethods_, preflightRequests } from "./agent-preflight.ts";
+import { GITHUB_TOOLS } from "./github-tools.ts";
 import { AGENT_ID_RE } from "./run.ts";
 
 /**
@@ -151,6 +153,11 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (typeof selected === "string") return sendJson(res, 400, { error: selected });
     const token = readToken(opts.tokenFile);
     if (!token) return sendJson(res, 503, { error: "operator token missing: run make 4orbit-seed" });
+    // Don't spend Gemini tokens on an issue the active policy would deny.
+    const precheck = await runner.simulate(token, [{ agentId: selected.agentId, action: "github.issue.Create", resource: { type: "Repository", id: selected.repository } }]);
+    if ((precheck?.[0] as { decision?: unknown } | undefined)?.decision === "DENY") {
+      return sendJson(res, 403, { error: `The active policy doesn't allow ${selected.agentId} to create issues in ${selected.repository}, so Gemini wasn't called` });
+    }
     if (!reserveGeminiTask()) return sendJson(res, 429, { error: "at most 5 Gemini tasks per minute; try again shortly" });
     let proposal;
     try { proposal = await opts.gemini.proposeIssue({ prompt, repository: selected.repository }); }
@@ -185,8 +192,12 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (!token) return sendJson(res, 503, { error: "operator token missing: run make 4orbit-seed" });
     if (!reserveGeminiTask()) return sendJson(res, 429, { error: "at most 5 Gemini tasks per minute; try again shortly" });
     const mode = await runner.githubMode(token);
+    // Preflight against the active policy (no Gemini call): offer Gemini only
+    // the tools that could be allowed, and none at all if nothing is.
+    const checks = preflightRequests(agentId, repository, GITHUB_TOOLS.map((t) => t.method));
+    const allowedMethods = await runner.simulate(token, checks.map((c) => c.request)).then((results) => allowedMethods_(checks, results));
     try {
-      const run = await opts.geminiAgent.run({ task, scope: { agentId, repository }, mode }, (method, params) => runner.githubCall(token, agentId, method, params));
+      const run = await opts.geminiAgent.run({ task, scope: { agentId, repository }, mode, ...(allowedMethods && { allowedMethods }) }, (method, params) => runner.githubCall(token, agentId, method, params));
       return sendJson(res, 200, { run, mode });
     } catch (error) {
       if (error instanceof RunError) return sendJson(res, error.status, { error: error.message });

@@ -6,6 +6,8 @@ const stoppedText: Record<AgentRun["stopped"], string> = {
   step_limit: "Stopped at the tool-call limit.",
   time_limit: "Stopped at the time limit.",
   gemini_error: "Stopped: Gemini failed.",
+  nothing_allowed: "Not started: the active policy allows none of the GitHub tools for this agent and repository. Gemini wasn't called.",
+  denied: "Stopped after repeated denials, without another Gemini call.",
 };
 
 /** The log of one Gemini agent run: every tool call and what the policy decided. */
@@ -24,6 +26,11 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
           {stoppedText[run.stopped]}
           {run.error ? ` ${run.error}` : ""}
         </p>
+        {run.stopped !== "nothing_allowed" && (
+          <p className="muted small">
+            Tools offered to Gemini (the ones the active policy could allow): <span className="mono">{run.tools.join(", ") || "none"}</span>
+          </p>
+        )}
         {run.steps.length > 0 && (
           <div className="table-wrap">
             <table>
@@ -75,7 +82,7 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
         )}
         {run.final && (
           <div>
-            <strong>Gemini’s summary</strong>
+            <strong>{run.stopped === "done" || run.stopped === "step_limit" ? "Gemini’s summary" : "Summary"}</strong>
             <p className="agent-final">{run.final}</p>
           </div>
         )}

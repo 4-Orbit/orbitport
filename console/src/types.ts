@@ -359,8 +359,10 @@ export interface AgentStep {
 export interface AgentRun {
   steps: AgentStep[];
   final: string | null;
-  stopped: "done" | "step_limit" | "time_limit" | "gemini_error";
+  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied";
   error?: string;
+  /** The tools Gemini was offered (only those the active policy could allow). */
+  tools: string[];
 }
 
 export interface GithubIssueResult {

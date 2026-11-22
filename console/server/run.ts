@@ -205,6 +205,13 @@ export class Runner {
     return "error" in out.body ? { error: out.body.error.message } : { result: out.body.result };
   }
 
+  /** policy.Simulate against the active version; null if it fails (the caller then skips the preflight). */
+  async simulate(operatorToken: string, requests: unknown[]): Promise<unknown[] | null> {
+    const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "policy.Simulate", params: { requests } }, this.deps.fetchImpl);
+    const results = "result" in out.body ? (out.body.result as { results?: unknown } | null)?.results : null;
+    return Array.isArray(results) ? results : null;
+  }
+
   /** mock or real, from the GitHub service (null if it can't be reached). */
   async githubMode(operatorToken: string): Promise<"mock" | "real" | null> {
     const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "github.ListRepositories", params: {} }, this.deps.fetchImpl);

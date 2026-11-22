@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createGeminiAgent, MAX_TOOL_CALLS, toolResponse, type GithubCaller } from "../server/gemini-agent.ts";
+import { createGeminiAgent, MAX_DENIALS_IN_A_ROW, MAX_TOOL_CALLS, toolResponse, type GithubCaller } from "../server/gemini-agent.ts";
 
 type Part = Record<string, unknown>;
 const call = (name: string, args: Record<string, unknown>, id = `c-${name}`): Part => ({ functionCall: { name, args, id }, thoughtSignature: `sig-${id}` });
@@ -172,4 +172,32 @@ test("a Gemini rate limit is waited out once, as asked", async () => {
   const run = await createGeminiAgent({ apiKey: "k", fetchImpl, sleep: async (ms) => void waits.push(ms) }).run({ task: "t", scope, mode: "mock" }, async () => ({ result: {} }));
   assert.equal(run.stopped, "done");
   assert.deepEqual(waits, [3000]);
+});
+
+test("nothing allowed: Gemini is never called", async () => {
+  const gemini = fakeGemini([[text("should not run")]]);
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "real", allowedMethods: new Set() }, async () => ({ result: {} }));
+  assert.equal(gemini.requests.length, 0);
+  assert.equal(run.stopped, "nothing_allowed");
+});
+
+test("only allowed tools are offered", async () => {
+  const gemini = fakeGemini([[call("create_branch", { branch: "agent/developer-agent/x" })], [text("ok")]]);
+  let calls = 0;
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "real", allowedMethods: new Set(["github.contents.Read"]) }, async () => (calls++, { result: {} }));
+  const offered = (gemini.requests[0] as unknown as { tools: { functionDeclarations: { name: string }[] }[] }).tools[0].functionDeclarations.map((d) => d.name);
+  assert.deepEqual(offered.sort(), ["list_directory", "read_file"]);
+  assert.deepEqual(run.tools.sort(), ["list_directory", "read_file"]);
+  // A tool that wasn't offered isn't executed.
+  assert.equal(calls, 0);
+  assert.equal(run.steps[0].error, "unknown tool create_branch");
+});
+
+test("repeated denials end the run without another Gemini turn", async () => {
+  const gemini = fakeGemini((n) => [call("create_issue", { title: `t${n}`, body: "b" }, `c${n}`)]);
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "real" }, async () => ({ result: { decision: "DENY", status: "DENIED" } }));
+  assert.equal(run.stopped, "denied");
+  assert.equal(run.steps.length, MAX_DENIALS_IN_A_ROW);
+  assert.equal(gemini.requests.length, MAX_DENIALS_IN_A_ROW);
+  assert.match(run.final ?? "", /denied/);
 });
