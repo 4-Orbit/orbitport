@@ -251,3 +251,45 @@ func TestMockCommitAppliesChanges(t *testing.T) {
 		t.Fatal("deleted a missing file")
 	}
 }
+
+func TestPullRequestFromTheAgentsOwnBranch(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = `@id("pr") permit(principal == Agent::"developer-agent", action == Action::"github.pr.Create", resource == Repository::"test-owner/test-repo") when { context has headAgent && context.headAgent == principal };`
+	r, err := callOp(t, p, "github.pr.Create", "developer-agent", map[string]any{"repository": repo, "head": "agent/developer-agent/fix", "title": "Fix typo", "body": "PRIVATE PR BODY"})
+	if err != nil || r.Decision != authz.Allow || r.Number != 12 || !strings.HasSuffix(r.URL, "/pull/12") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if !strings.HasPrefix(provider.last, "agent/developer-agent/fix->main|PRIVATE PR BODY") || !strings.Contains(provider.last, r.RequestID) {
+		t.Fatalf("base not defaulted or not attributed: %q", provider.last)
+	}
+	if r.Context["baseBranch"] != "main" || r.Context["isDefaultBase"] != true {
+		t.Fatalf("context %v", r.Context)
+	}
+	raw, _ := json.Marshal(policy.events)
+	if strings.Contains(string(raw), "PRIVATE PR BODY") {
+		t.Fatal("pull request body reached the audit log")
+	}
+	provider.calls = 0
+	if r, _ := callOp(t, p, "github.pr.Create", "developer-agent", map[string]any{"repository": repo, "head": "agent/security-agent/fix", "title": "x", "body": ""}); r.Decision != authz.Deny || provider.calls != 0 {
+		t.Fatalf("proposed another agent's branch: %+v", r)
+	}
+	if _, err := callOp(t, p, "github.pr.Create", "developer-agent", map[string]any{"repository": repo, "head": "main", "title": "x", "body": ""}); err == nil {
+		t.Fatal("head equal to the default base was accepted")
+	}
+}
+
+func TestMockPullRequestsNeedChanges(t *testing.T) {
+	m, ctx := newMockRepo(), context.Background()
+	_, _ = m.CreateBranch(ctx, repo, "agent/a/x", "")
+	if _, err := m.OpenPull(ctx, repo, "agent/a/x", "main", "t", "b"); err == nil {
+		t.Fatal("opened a pull request with no changes")
+	}
+	_, _ = m.Commit(ctx, repo, "agent/a/x", "m", []fileChange{{Path: "README.md", Content: "fixed"}})
+	n, err := m.OpenPull(ctx, repo, "agent/a/x", "main", "t", "b")
+	if err != nil || n <= 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if _, err := m.OpenPull(ctx, repo, "agent/a/x", "main", "t", "b"); err == nil {
+		t.Fatal("opened a second pull request for the same branch")
+	}
+}

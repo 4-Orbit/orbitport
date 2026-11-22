@@ -1299,5 +1299,53 @@
       "touchesWorkflows": false
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent open pull request from agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent open pull request from agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent open pull request from agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "DENY"
   }
 ]

@@ -357,3 +357,23 @@ func (p *realProvider) Commit(ctx context.Context, repo, branch, message string,
 	}
 	return commit.SHA, nil
 }
+
+func (p *realProvider) OpenPull(ctx context.Context, repo, head, base, title, body string) (int64, error) {
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write"})
+	if err != nil {
+		return 0, err
+	}
+	var pull struct {
+		Number int64 `json:"number"`
+	}
+	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/pulls", token, map[string]string{"title": title, "head": head, "base": base, "body": body}, &pull, http.StatusCreated); err != nil {
+		if r, ok := err.(refusal); ok && r.status == http.StatusUnprocessableEntity {
+			return 0, precondition{"GitHub refused the pull request: one may already be open for this branch, or it has no changes"}
+		}
+		return 0, notFound(err, "branch")
+	}
+	if pull.Number <= 0 {
+		return 0, fmt.Errorf("invalid pull request response")
+	}
+	return pull.Number, nil
+}

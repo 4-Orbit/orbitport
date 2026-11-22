@@ -192,3 +192,15 @@ func TestRealProviderCommitsFastForwardOnly(t *testing.T) {
 		t.Fatalf("moved branch: %v", err)
 	}
 }
+
+func TestRealProviderOpensAPullRequest(t *testing.T) {
+	p := fakeGithub(t, `{"permissions":{"pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+		if r.Method != "POST" || r.URL.Path != "/repos/test-owner/test-repo/pulls" || body["head"] != "agent/dev/x" || body["base"] != "main" || body["title"] != "T" {
+			t.Fatalf("wrong pull %s %s %v", r.Method, r.URL, body)
+		}
+		return 201, `{"number":12}`
+	})
+	if n, err := p.OpenPull(context.Background(), "test-owner/test-repo", "agent/dev/x", "main", "T", "B"); err != nil || n != 12 {
+		t.Fatalf("%d %v", n, err)
+	}
+}

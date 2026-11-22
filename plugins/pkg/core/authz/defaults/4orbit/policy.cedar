@@ -98,3 +98,12 @@ permit (
 )
 when { context has branchAgent && context.branchAgent == principal }
 unless { context.touchesWorkflows };
+
+// Developers may open pull requests from their own agent/<agent-id>/ branches.
+@id("developer-propose-own-branches")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.pr.Create",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+when { context has headAgent && context.headAgent == principal };

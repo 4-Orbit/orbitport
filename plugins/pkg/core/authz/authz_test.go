@@ -352,6 +352,13 @@ func githubOperationTests() []TestCase {
 		tc.Context["touchesWorkflows"] = strings.HasPrefix(path, ".github/workflows/")
 		return tc
 	}
+	pull := func(agent, head string, expect Decision) TestCase {
+		ctx := map[string]any{"headBranch": head, "baseBranch": "main", "isDefaultBase": true}
+		if owner := strings.TrimPrefix(head, "agent/"); owner != head {
+			ctx["headAgent"] = strings.SplitN(owner, "/", 2)[0]
+		}
+		return TestCase{Name: agent + " open pull request from " + head, AgentID: agent, Action: "github.pr.Create", Resource: demo, Context: ctx, Expect: expect}
+	}
 	read := func(agent, path string, expect Decision) TestCase {
 		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
 	}
@@ -369,6 +376,9 @@ func githubOperationTests() []TestCase {
 		commit("developer-agent", "agent/developer-agent/fix", ".github/workflows/ci.yml", Deny),
 		commit("developer-agent", "agent/security-agent/fix", "README.md", Deny),
 		commit("developer-agent", "main", "README.md", Deny),
+		pull("developer-agent", "agent/developer-agent/fix", Allow),
+		pull("developer-agent", "agent/security-agent/fix", Deny),
+		pull("security-agent", "agent/security-agent/fix", Deny),
 	}
 }
 

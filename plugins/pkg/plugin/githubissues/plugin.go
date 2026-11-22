@@ -58,6 +58,8 @@ type provider interface {
 	// Commit writes files to an existing branch as one commit, fast-forward
 	// only, and returns the new commit id.
 	Commit(ctx context.Context, repo, branch, message string, changes []fileChange) (string, error)
+	// OpenPull opens a pull request from head into base and returns its number.
+	OpenPull(ctx context.Context, repo, head, base, title, body string) (int64, error)
 }
 
 // fileChange adds or replaces a file, or deletes it (Delete set).
@@ -186,6 +188,7 @@ var handlers = map[string]handler{
 	"github.issue.Comment": (*Plugin).commentIssue,
 	"github.branch.Create": (*Plugin).createBranch,
 	"github.commit.Create": (*Plugin).createCommit,
+	"github.pr.Create":     (*Plugin).createPull,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -495,6 +498,58 @@ func (p *Plugin) createCommit(c *proto.GithubCallRequest) (operation, error) {
 			out := outcome{Ref: args.Branch, SHA: sha}
 			if p.mode == "real" {
 				out.URL = fmt.Sprintf("https://github.com/%s/commit/%s", p.repository, sha)
+			}
+			return out, nil
+		},
+	}, nil
+}
+
+type pullParams struct {
+	Repository string `json:"repository"`
+	Head       string `json:"head"`
+	Base       string `json:"base,omitempty"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+}
+
+func (p *Plugin) createPull(c *proto.GithubCallRequest) (operation, error) {
+	var args pullParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	if !repoRE.MatchString(args.Repository) || !validRef(args.Head) || (args.Base != "" && !validRef(args.Base)) || args.Head == args.Base ||
+		strings.TrimSpace(args.Title) == "" || len(args.Title) > 256 || len(args.Body) > 60000 {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, head branch, optional base branch, title (1–256 bytes) and body (up to 60000 bytes)")
+	}
+	base := args.Base
+	return operation{
+		action:     "github.pr.Create",
+		repository: args.Repository,
+		lookup: func(ctx context.Context) (map[string]any, error) {
+			def, err := p.provider.DefaultBranch(ctx, p.repository)
+			if err != nil {
+				return nil, err
+			}
+			if base == "" {
+				base = def
+			}
+			if base == args.Head {
+				return nil, precondition{"head and base are the same branch"}
+			}
+			out := map[string]any{"headBranch": args.Head, "baseBranch": base, "isDefaultBase": base == def}
+			if agent := branchAgent(args.Head); agent != "" {
+				out["headAgent"] = agent
+			}
+			return out, nil
+		},
+		run: func(ctx context.Context, requestID string) (outcome, error) {
+			n, err := p.provider.OpenPull(ctx, p.repository, args.Head, base, args.Title, attribution(args.Body, c, requestID))
+			if err != nil {
+				return outcome{}, err
+			}
+			out := outcome{Number: n, Ref: args.Head}
+			if p.mode == "real" {
+				out.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.repository, n)
 			}
 			return out, nil
 		},

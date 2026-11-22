@@ -135,3 +135,10 @@ test("commit_files sends whole-file changes and refuses malformed ones", async (
   assert.deepEqual(calls, [{ repository: "owner/repo", ...good }]);
   assert.match(run.steps[1].summary, /README\.md, -old\.txt/);
 });
+
+test("open_pull_request maps to github.pr.Create", async () => {
+  const gemini = fakeGemini([[call("open_pull_request", { head: "agent/developer-agent/fix", title: "Fix typo", body: "Fixes README" })], [text("ok")]]);
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (method, params) => (calls.push({ method, params }), { result: { decision: "ALLOW", status: "SUCCESS", number: 3 } }));
+  assert.deepEqual(calls, [{ method: "github.pr.Create", params: { repository: "owner/repo", head: "agent/developer-agent/fix", title: "Fix typo", body: "Fixes README" } }]);
+});

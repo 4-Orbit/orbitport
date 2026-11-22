@@ -131,6 +131,27 @@ GITHUB_TOOLS.push(
       return `commit to ${String(a.branch)}: ${[...files, ...deletes].join(", ").slice(0, 160)}`;
     },
   },
+  {
+    name: "open_pull_request",
+    description: "Open a pull request from a branch you committed to, into the default branch unless base is given.",
+    parameters: {
+      type: "object",
+      properties: {
+        head: { type: "string", description: "Branch with the changes" },
+        base: { type: "string", description: "Branch to merge into; omit for the default branch" },
+        title: { type: "string", description: "Pull request title" },
+        body: { type: "string", description: "What changed and why" },
+      },
+      required: ["head", "title", "body"],
+    },
+    method: "github.pr.Create",
+    params: (a, s) => {
+      if (!only(a, ["head", "base", "title", "body"]) || !str(a.head, 255) || !a.head || (a.base !== undefined && !str(a.base, 255)) || !str(a.title, 256) || !a.title.trim() || !str(a.body, 16_384))
+        return "head, title (1–256 characters), body and an optional base";
+      return { repository: s.repository, head: a.head, ...(a.base ? { base: a.base } : {}), title: a.title, body: a.body };
+    },
+    summary: (a) => `pull request ${String(a.head)} → ${a.base ? String(a.base) : "default branch"}: “${String(a.title ?? "").slice(0, 60)}”`,
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);

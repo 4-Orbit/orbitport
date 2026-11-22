@@ -97,6 +97,13 @@ func (p *providerStub) Commit(_ context.Context, _ string, _ string, message str
 	return "89abcdef0123456789abcdef0123456789abcdef", nil
 }
 
+func (p *providerStub) OpenPull(_ context.Context, _ string, head, base, _, body string) (int64, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = head + "->" + base + "|" + body
+	return 12, nil
+}
+
 // mustFollowDecision panics unless the decision audit was recorded first.
 func (p *providerStub) mustFollowDecision() {
 	if len(p.audit.events) == 0 || p.audit.events[len(p.audit.events)-1].Stage != "decision" {

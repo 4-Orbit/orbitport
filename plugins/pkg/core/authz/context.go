@@ -60,6 +60,12 @@ var actionContext = map[string][]ContextField{
 		ContextField{Name: "paths", Type: ContextStringSet, Doc: "Every path the commit adds, changes or deletes."},
 		ContextField{Name: "touchesWorkflows", Type: ContextBool, Doc: "Whether any of those paths is under .github/workflows/."},
 	),
+	"github.pr.Create": {
+		{Name: "headBranch", Type: ContextString, Doc: "The branch proposed."},
+		{Name: "baseBranch", Type: ContextString, Doc: "The branch it would merge into (the default branch unless given)."},
+		{Name: "isDefaultBase", Type: ContextBool, Doc: "Whether the base is the repository's default branch, read from GitHub."},
+		{Name: "headAgent", Type: ContextAgent, Optional: true, Doc: "The agent an agent/<agent-id>/... head branch belongs to."},
+	},
 }
 
 // branchContext is the context of every write to a branch.

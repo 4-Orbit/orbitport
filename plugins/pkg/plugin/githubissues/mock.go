@@ -26,12 +26,21 @@ type mockRepo struct {
 	branches map[string]map[string]string
 	heads    map[string]string
 	commits  int
+	pulls    map[int64]*mockPull
+}
+
+// mockPull is an open or merged pull request. Agents' pull requests are
+// opened by the App, so their author is a bot, as on GitHub.
+type mockPull struct {
+	head, base string
+	merged     bool
 }
 
 func newMockRepo() *mockRepo {
 	return &mockRepo{
 		next:          1,
 		issues:        map[int64]int{},
+		pulls:         map[int64]*mockPull{},
 		defaultBranch: "main",
 		heads:         map[string]string{"main": mockSHA(0)},
 		branches: map[string]map[string]string{
@@ -172,4 +181,28 @@ func (m *mockRepo) Commit(_ context.Context, _ string, branch, _ string, changes
 	m.commits++
 	m.heads[branch] = mockSHA(m.commits)
 	return m.heads[branch], nil
+}
+
+func (m *mockRepo) OpenPull(_ context.Context, _ string, head, base, _, _ string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.branches[head]; !ok {
+		return 0, precondition{"branch not found"}
+	}
+	if _, ok := m.branches[base]; !ok {
+		return 0, precondition{"branch not found"}
+	}
+	if m.heads[head] == m.heads[base] {
+		return 0, precondition{"GitHub refused the pull request: one may already be open for this branch, or it has no changes"}
+	}
+	for _, pr := range m.pulls {
+		if pr.head == head && !pr.merged {
+			return 0, precondition{"GitHub refused the pull request: one may already be open for this branch, or it has no changes"}
+		}
+	}
+	n := m.next
+	m.next++
+	m.issues[n] = 0
+	m.pulls[n] = &mockPull{head: head, base: base}
+	return n, nil
 }
