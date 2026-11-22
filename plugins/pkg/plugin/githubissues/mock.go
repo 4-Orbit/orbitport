@@ -2,6 +2,8 @@ package githubissues
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -126,7 +128,8 @@ func (m *mockRepo) ReadContents(_ context.Context, _ string, path, ref string) (
 
 // mockSHA is a stable fake commit id.
 func mockSHA(n int) string {
-	return fmt.Sprintf("%040x", n+0xc0ffee)
+	sum := sha1.Sum([]byte(fmt.Sprintf("orbitport-mock-commit-%d", n)))
+	return hex.EncodeToString(sum[:])
 }
 
 func (m *mockRepo) DefaultBranch(context.Context, string) (string, error) {

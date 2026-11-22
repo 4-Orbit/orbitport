@@ -1501,5 +1501,25 @@
       "mergeableState": "clean"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent read pull request",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Get",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "deployment-agent read pull request elsewhere",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Get",
+    "resource": {
+      "type": "Repository",
+      "id": "other-owner/other-repo"
+    },
+    "expect": "DENY"
   }
 ]

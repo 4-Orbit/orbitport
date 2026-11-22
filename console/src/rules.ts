@@ -59,6 +59,7 @@ export const CAPABILITIES: Capability[] = [
   { id: "github.pr.Create", label: "Open pull requests", verb: "open pull requests", prep: "in", resourceType: "Repository" },
   { id: "github.pr.Review", label: "Review pull requests", verb: "review pull requests", prep: "in", resourceType: "Repository" },
   { id: "github.pr.Merge", label: "Merge pull requests", verb: "merge pull requests", prep: "in", resourceType: "Repository" },
+  { id: "github.pr.Get", label: "View pull requests", verb: "view pull requests", prep: "in", resourceType: "Repository" },
   { id: "use", label: "Use keys (encrypt, decrypt, sign, data keys)", verb: "use", prep: "" },
   { id: "kms.Encrypt", label: "Encrypt", verb: "encrypt", prep: "with", group: "use" },
   { id: "kms.Decrypt", label: "Decrypt", verb: "decrypt", prep: "with", group: "use" },

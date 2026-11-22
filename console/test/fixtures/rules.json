@@ -205,7 +205,8 @@
         "github.commit.Create",
         "github.pr.Create",
         "github.pr.Review",
-        "github.pr.Merge"
+        "github.pr.Merge",
+        "github.pr.Get"
       ],
       "on": {
         "kind": "repositories",
@@ -214,7 +215,7 @@
         ]
       }
     },
-    "cedar": "@id(\"github-developer-read-and-create\")\npermit (\n  principal in Role::\"developer\",\n  action in [Action::\"github.issue.Create\", Action::\"github.contents.Read\", Action::\"github.issue.Comment\", Action::\"github.branch.Create\", Action::\"github.commit.Create\", Action::\"github.pr.Create\", Action::\"github.pr.Review\", Action::\"github.pr.Merge\"],\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
+    "cedar": "@id(\"github-developer-read-and-create\")\npermit (\n  principal in Role::\"developer\",\n  action in [Action::\"github.issue.Create\", Action::\"github.contents.Read\", Action::\"github.issue.Comment\", Action::\"github.branch.Create\", Action::\"github.commit.Create\", Action::\"github.pr.Create\", Action::\"github.pr.Review\", Action::\"github.pr.Merge\", Action::\"github.pr.Get\"],\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
     "json": {
       "annotations": {
         "id": "github-developer-read-and-create"
@@ -261,6 +262,10 @@
           {
             "type": "Action",
             "id": "github.pr.Merge"
+          },
+          {
+            "type": "Action",
+            "id": "github.pr.Get"
           }
         ]
       },

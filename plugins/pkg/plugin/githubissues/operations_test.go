@@ -424,3 +424,22 @@ func TestMockFlowUnderTheDefaultTemplate(t *testing.T) {
 		t.Fatalf("main not updated: %q", f.Content)
 	}
 }
+
+func TestPullGetReportsWhatAMergeNeeds(t *testing.T) {
+	p, policy, provider := setup()
+	provider.pull = pullInfo{HeadRef: "agent/developer-agent/fix", HeadSHA: agentPull, BaseRef: "main", Open: true, AuthorIsApp: true, MergeableState: "clean"}
+	provider.approvals = 2
+	policy.policies = `@id("get") permit(principal is Agent, action == Action::"github.pr.Get", resource == Repository::"test-owner/test-repo");`
+	r, err := callOp(t, p, "github.pr.Get", "deployment-agent", map[string]any{"repository": repo, "number": 12})
+	if err != nil || r.Decision != authz.Allow || r.SHA != agentPull {
+		t.Fatalf("%+v %v", r, err)
+	}
+	view := r.Output.(map[string]any)
+	if view["headSha"] != agentPull || view["humanApprovals"] != float64(2) || view["mergeableState"] != "clean" {
+		t.Fatalf("view %v", view)
+	}
+	policy.policies = ""
+	if r, _ := callOp(t, p, "github.pr.Get", "deployment-agent", map[string]any{"repository": repo, "number": 12}); r.Decision != authz.Deny {
+		t.Fatal("read without a permit")
+	}
+}

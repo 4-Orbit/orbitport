@@ -98,6 +98,12 @@ action "github.contents.Read" in ["github.read"] appliesTo {
   context: ContentsContext,
 };
 
+action "github.pr.Get" in ["github.read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: TrustedContext,
+};
+
 action "github.issue.Create", "github.issue.Comment" in ["github.write"] appliesTo {
   principal: [Account, Agent],
   resource: [Repository],

@@ -210,6 +210,7 @@ var handlers = map[string]handler{
 	"github.pr.Create":     (*Plugin).createPull,
 	"github.pr.Review":     (*Plugin).reviewPull,
 	"github.pr.Merge":      (*Plugin).mergePull,
+	"github.pr.Get":        (*Plugin).getPull,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -695,6 +696,48 @@ func (p *Plugin) mergePull(c *proto.GithubCallRequest) (operation, error) {
 			return out, nil
 		},
 	}, nil
+}
+
+type getPullParams struct {
+	Repository string `json:"repository"`
+	Number     int64  `json:"number"`
+}
+
+// pullView is what github.pr.Get returns: enough to review and to merge
+// exactly the reviewed commit.
+type pullView struct {
+	Number         int64  `json:"number"`
+	Open           bool   `json:"open"`
+	HeadBranch     string `json:"headBranch"`
+	HeadSHA        string `json:"headSha"`
+	BaseBranch     string `json:"baseBranch"`
+	AuthorIsApp    bool   `json:"authorIsApp"`
+	MergeableState string `json:"mergeableState"`
+	HumanApprovals int64  `json:"humanApprovals"`
+}
+
+func (p *Plugin) getPull(c *proto.GithubCallRequest) (operation, error) {
+	var args getPullParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	if !repoRE.MatchString(args.Repository) || args.Number <= 0 {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository and pull request number")
+	}
+	return operation{action: "github.pr.Get", repository: args.Repository, run: func(ctx context.Context, _ string) (outcome, error) {
+		pr, err := p.provider.Pull(ctx, p.repository, args.Number)
+		if err != nil {
+			return outcome{}, err
+		}
+		approvals, err := p.provider.HumanApprovals(ctx, p.repository, args.Number, pr.HeadSHA)
+		if err != nil {
+			return outcome{}, err
+		}
+		return outcome{Number: args.Number, SHA: pr.HeadSHA, Ref: pr.HeadRef, Output: pullView{
+			Number: args.Number, Open: pr.Open, HeadBranch: pr.HeadRef, HeadSHA: pr.HeadSHA, BaseBranch: pr.BaseRef,
+			AuthorIsApp: pr.AuthorIsApp, MergeableState: pr.MergeableState, HumanApprovals: approvals,
+		}}, nil
+	}}, nil
 }
 
 // enforce runs one operation through policy, audit and the provider.

@@ -396,6 +396,8 @@ func githubOperationTests() []TestCase {
 		merge("deployment-agent", "agent/developer-agent/fix", 1, "blocked", Deny),
 		merge("deployment-agent", "agent/deployment-agent/fix", 1, "clean", Deny),
 		merge("developer-agent", "agent/security-agent/fix", 1, "clean", Deny),
+		{Name: "deployment-agent read pull request", AgentID: "deployment-agent", Action: "github.pr.Get", Resource: demo, Expect: Allow},
+		{Name: "deployment-agent read pull request elsewhere", AgentID: "deployment-agent", Action: "github.pr.Get", Resource: Resource{Type: "Repository", ID: "other-owner/other-repo"}, Expect: Deny},
 	}
 }
 

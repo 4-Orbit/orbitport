@@ -174,9 +174,17 @@ GITHUB_TOOLS.push(
     summary: (a) => `${String(a.event ?? "").toLowerCase().replace("_", " ")} review on #${String(a.number)}`,
   },
   {
+    name: "get_pull_request",
+    description: "Read a pull request's state: head branch and head commit id (needed to merge), base branch, GitHub's mergeable state and how many people approved the current head.",
+    parameters: { type: "object", properties: { number: { type: "integer", description: "Pull request number" } }, required: ["number"] },
+    method: "github.pr.Get",
+    params: (a, s) => (only(a, ["number"]) && int(a.number) ? { repository: s.repository, number: a.number } : "number (a positive integer)"),
+    summary: (a) => `view #${String(a.number)}`,
+  },
+  {
     name: "merge_pull_request",
     description:
-      "Merge a pull request. expected_head_sha must be the head commit id you reviewed (for example the sha commit_files returned); if the pull request changed since, the merge is refused and you must review again.",
+      "Merge a pull request. expected_head_sha must be the head commit id you checked (get_pull_request returns it as headSha); if the pull request changed since, the merge is refused and you must check again.",
     parameters: {
       type: "object",
       properties: {

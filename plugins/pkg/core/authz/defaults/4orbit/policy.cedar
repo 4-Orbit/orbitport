@@ -147,3 +147,12 @@ forbid (
   resource
 )
 when { context has headAgent && context.headAgent == principal };
+
+// Any agent may read pull request metadata (state, head commit, approvals),
+// which reviewing and merging need.
+@id("agents-read-pull-requests")
+permit (
+  principal is Agent,
+  action == Action::"github.pr.Get",
+  resource == Repository::"demo-owner/orbitport-test"
+);
