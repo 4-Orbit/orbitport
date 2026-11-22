@@ -344,6 +344,14 @@ func githubOperationTests() []TestCase {
 		}
 		return TestCase{Name: agent + " create branch " + name, AgentID: agent, Action: "github.branch.Create", Resource: demo, Context: ctx, Expect: expect}
 	}
+	commit := func(agent, name, path string, expect Decision) TestCase {
+		tc := branch(agent, name, expect)
+		tc.Name = agent + " commit " + path + " to " + name
+		tc.Action = "github.commit.Create"
+		tc.Context["paths"] = []string{path}
+		tc.Context["touchesWorkflows"] = strings.HasPrefix(path, ".github/workflows/")
+		return tc
+	}
 	read := func(agent, path string, expect Decision) TestCase {
 		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
 	}
@@ -357,6 +365,10 @@ func githubOperationTests() []TestCase {
 		branch("developer-agent", "agent/security-agent/fix", Deny),
 		branch("developer-agent", "main", Deny),
 		branch("security-agent", "agent/security-agent/fix", Deny),
+		commit("developer-agent", "agent/developer-agent/fix", "README.md", Allow),
+		commit("developer-agent", "agent/developer-agent/fix", ".github/workflows/ci.yml", Deny),
+		commit("developer-agent", "agent/security-agent/fix", "README.md", Deny),
+		commit("developer-agent", "main", "README.md", Deny),
 	}
 }
 

@@ -30,6 +30,16 @@ type ContentsContext = { currentTime: Long, path: String };
 // A branch write. branchAgent is the agent an agent/<agent-id>/... branch
 // belongs to, so a policy can say "only your own branches".
 type BranchContext = { currentTime: Long, branch: String, isDefaultBranch: Bool, branchAgent?: Agent };
+// A commit: the branch fields, every path it adds, changes or deletes, and
+// whether any of them is under .github/workflows/.
+type CommitContext = {
+  currentTime: Long,
+  branch: String,
+  isDefaultBranch: Bool,
+  branchAgent?: Agent,
+  paths: Set<String>,
+  touchesWorkflows: Bool,
+};
 
 action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code";
 
@@ -37,6 +47,12 @@ action "github.branch.Create" in ["github.code"] appliesTo {
   principal: [Account, Agent],
   resource: [Repository],
   context: BranchContext,
+};
+
+action "github.commit.Create" in ["github.code"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: CommitContext,
 };
 
 action "github.contents.Read" in ["github.read"] appliesTo {

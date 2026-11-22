@@ -10,6 +10,7 @@ pub const GITHUB_METHODS: &[&str] = &[
     "github.contents.Read",
     "github.issue.Comment",
     "github.branch.Create",
+    "github.commit.Create",
 ];
 
 #[derive(Debug)]
@@ -75,6 +76,7 @@ mod tests {
         assert!(GithubCall::parse("github.contents.Read", "{}").is_ok());
         assert!(GithubCall::parse("github.issue.Comment", "{}").is_ok());
         assert!(GithubCall::parse("github.branch.Create", "{}").is_ok());
+        assert!(GithubCall::parse("github.commit.Create", "{}").is_ok());
         assert!(GithubCall::parse("github.pr.Merge", "{}").is_err());
         assert!(
             GithubCall::parse("github.issue.Create", "null")

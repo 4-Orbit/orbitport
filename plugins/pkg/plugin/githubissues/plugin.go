@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -54,6 +55,16 @@ type provider interface {
 	// CreateBranch creates branch at from (a branch or commit id; "" = the
 	// default branch) and returns the commit id it points to.
 	CreateBranch(ctx context.Context, repo, branch, from string) (string, error)
+	// Commit writes files to an existing branch as one commit, fast-forward
+	// only, and returns the new commit id.
+	Commit(ctx context.Context, repo, branch, message string, changes []fileChange) (string, error)
+}
+
+// fileChange adds or replaces a file, or deletes it (Delete set).
+type fileChange struct {
+	Path    string
+	Content string
+	Delete  bool
 }
 
 // contents is a file (Content set) or a directory (Entries set).
@@ -174,6 +185,7 @@ var handlers = map[string]handler{
 	"github.contents.Read": (*Plugin).readContents,
 	"github.issue.Comment": (*Plugin).commentIssue,
 	"github.branch.Create": (*Plugin).createBranch,
+	"github.commit.Create": (*Plugin).createCommit,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -385,6 +397,106 @@ func (p *Plugin) createBranch(c *proto.GithubCallRequest) (operation, error) {
 				return outcome{}, err
 			}
 			return outcome{Ref: args.Branch, SHA: sha}, nil
+		},
+	}, nil
+}
+
+// trailers are git commit trailers naming the agent and request, for the
+// same reason as attribution.
+func trailers(message string, c *proto.GithubCallRequest, requestID string) string {
+	agent := c.AgentId
+	if agent == "" {
+		agent = "account"
+	}
+	return strings.TrimRight(message, "\n") + "\n\nOrbitport-Agent: " + agent + "\nOrbitport-Request: " + requestID + "\n"
+}
+
+// Commit limits keep one commit inside the gateway's 64 KB params.
+const (
+	maxCommitFiles   = 20
+	maxCommitBytes   = 48000
+	maxCommitMessage = 2000
+)
+
+type commitParams struct {
+	Repository string `json:"repository"`
+	Branch     string `json:"branch"`
+	Message    string `json:"message"`
+	Files      []struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	} `json:"files,omitempty"`
+	Deletes []string `json:"deletes,omitempty"`
+}
+
+func (p *Plugin) createCommit(c *proto.GithubCallRequest) (operation, error) {
+	var args commitParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	invalid := status.Error(codes.InvalidArgument, fmt.Sprintf("expected repository, an existing branch, a message (1–%d bytes) and 1–%d file changes (at most %d bytes of content, relative paths, each path once)", maxCommitMessage, maxCommitFiles, maxCommitBytes))
+	if !repoRE.MatchString(args.Repository) || !validRef(args.Branch) || strings.HasPrefix(args.Branch, "refs/") || strings.TrimSpace(args.Message) == "" || len(args.Message) > maxCommitMessage {
+		return operation{}, invalid
+	}
+	n := len(args.Files) + len(args.Deletes)
+	if n == 0 || n > maxCommitFiles {
+		return operation{}, invalid
+	}
+	var changes []fileChange
+	seen := map[string]bool{}
+	size := 0
+	add := func(raw, content string, del bool) bool {
+		path, ok := cleanPath(raw)
+		if !ok || path == "" || seen[path] {
+			return false
+		}
+		seen[path] = true
+		size += len(content)
+		changes = append(changes, fileChange{Path: path, Content: content, Delete: del})
+		return true
+	}
+	for _, f := range args.Files {
+		if !add(f.Path, f.Content, false) {
+			return operation{}, invalid
+		}
+	}
+	for _, d := range args.Deletes {
+		if !add(d, "", true) {
+			return operation{}, invalid
+		}
+	}
+	if size > maxCommitBytes {
+		return operation{}, invalid
+	}
+	paths := make([]string, 0, len(changes))
+	workflows := false
+	for _, ch := range changes {
+		paths = append(paths, ch.Path)
+		workflows = workflows || ch.Path == ".github/workflows" || strings.HasPrefix(ch.Path, ".github/workflows/")
+	}
+	sort.Strings(paths)
+	return operation{
+		action:     "github.commit.Create",
+		repository: args.Repository,
+		timeout:    30 * time.Second,
+		lookup: func(ctx context.Context) (map[string]any, error) {
+			out, err := p.branchContext(ctx, args.Branch)
+			if err != nil {
+				return nil, err
+			}
+			out["paths"], out["touchesWorkflows"] = paths, workflows
+			return out, nil
+		},
+		run: func(ctx context.Context, requestID string) (outcome, error) {
+			sha, err := p.provider.Commit(ctx, p.repository, args.Branch, trailers(args.Message, c, requestID), changes)
+			if err != nil {
+				return outcome{}, err
+			}
+			out := outcome{Ref: args.Branch, SHA: sha}
+			if p.mode == "real" {
+				out.URL = fmt.Sprintf("https://github.com/%s/commit/%s", p.repository, sha)
+			}
+			return out, nil
 		},
 	}, nil
 }

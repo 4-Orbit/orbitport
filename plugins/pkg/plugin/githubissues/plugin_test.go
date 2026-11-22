@@ -87,6 +87,16 @@ func (p *providerStub) CreateBranch(_ context.Context, _ string, branch, _ strin
 	return "0123456789abcdef0123456789abcdef01234567", nil
 }
 
+func (p *providerStub) Commit(_ context.Context, _ string, _ string, message string, changes []fileChange) (string, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = message
+	for _, ch := range changes {
+		p.last += "|" + ch.Content
+	}
+	return "89abcdef0123456789abcdef0123456789abcdef", nil
+}
+
 // mustFollowDecision panics unless the decision audit was recorded first.
 func (p *providerStub) mustFollowDecision() {
 	if len(p.audit.events) == 0 || p.audit.events[len(p.audit.events)-1].Stage != "decision" {

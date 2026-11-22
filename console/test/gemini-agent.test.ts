@@ -125,3 +125,13 @@ test("create_branch passes the branch and optional base", async () => {
     { repository: "owner/repo", branch: "agent/developer-agent/b", from: "dev" },
   ]);
 });
+
+test("commit_files sends whole-file changes and refuses malformed ones", async () => {
+  const good = { branch: "agent/developer-agent/fix", message: "Fix typo", files: [{ path: "README.md", content: "try" }], deletes: ["old.txt"] };
+  const gemini = fakeGemini([[call("commit_files", { ...good, files: [{ path: "a" }] }), call("commit_files", good, "c2")], [text("ok")]]);
+  const calls: Record<string, unknown>[] = [];
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (_m, params) => (calls.push(params), { result: { decision: "ALLOW", status: "SUCCESS", sha: "abc" } }));
+  assert.ok(run.steps[0].error);
+  assert.deepEqual(calls, [{ repository: "owner/repo", ...good }]);
+  assert.match(run.steps[1].summary, /README\.md, -old\.txt/);
+});

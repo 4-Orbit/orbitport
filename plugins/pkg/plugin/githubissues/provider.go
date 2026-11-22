@@ -303,3 +303,57 @@ func (p *realProvider) CreateBranch(ctx context.Context, repo, branch, from stri
 	}
 	return sha, nil
 }
+
+func (p *realProvider) Commit(ctx context.Context, repo, branch, message string, changes []fileChange) (string, error) {
+	token, err := p.token(ctx, repo, map[string]string{"contents": "write"})
+	if err != nil {
+		return "", err
+	}
+	head, err := p.headOf(ctx, repo, token, branch)
+	if err != nil {
+		return "", err
+	}
+	var parent struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := p.request(ctx, http.MethodGet, "/repos/"+repo+"/git/commits/"+head, token, nil, &parent, http.StatusOK); err != nil {
+		return "", err
+	}
+	entries := make([]map[string]any, 0, len(changes))
+	for _, ch := range changes {
+		e := map[string]any{"path": ch.Path, "mode": "100644", "type": "blob"}
+		if ch.Delete {
+			e["sha"] = nil
+		} else {
+			e["content"] = ch.Content
+		}
+		entries = append(entries, e)
+	}
+	var tree struct {
+		SHA string `json:"sha"`
+	}
+	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/git/trees", token, map[string]any{"base_tree": parent.Tree.SHA, "tree": entries}, &tree, http.StatusCreated); err != nil {
+		// A delete of a path that doesn't exist is GitHub's 422.
+		return "", exists(err, "a file change")
+	}
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/git/commits", token, map[string]any{"message": message, "tree": tree.SHA, "parents": []string{head}}, &commit, http.StatusCreated); err != nil {
+		return "", err
+	}
+	if !commitIDRE.MatchString(commit.SHA) {
+		return "", fmt.Errorf("invalid commit response")
+	}
+	// Fast-forward only: if the branch moved since head was read, GitHub
+	// refuses and nothing is overwritten.
+	if err := p.request(ctx, http.MethodPatch, "/repos/"+repo+"/git/refs/heads/"+escapePath(branch), token, map[string]any{"sha": commit.SHA, "force": false}, nil, http.StatusOK); err != nil {
+		if r, ok := err.(refusal); ok && r.status == http.StatusUnprocessableEntity {
+			return "", precondition{"the branch moved while committing; read it again and retry"}
+		}
+		return "", err
+	}
+	return commit.SHA, nil
+}

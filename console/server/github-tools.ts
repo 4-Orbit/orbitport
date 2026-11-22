@@ -97,6 +97,40 @@ GITHUB_TOOLS.push(
     },
     summary: (a) => `branch ${String(a.branch)}${a.from ? ` from ${String(a.from)}` : ""}`,
   },
+  {
+    name: "commit_files",
+    description:
+      "Commit file changes to an existing branch you created (one commit). Give each changed file's complete new content. At most 20 files and 48000 characters of content.",
+    parameters: {
+      type: "object",
+      properties: {
+        branch: { type: "string", description: "Branch to commit to" },
+        message: { type: "string", description: "Commit message" },
+        files: {
+          type: "array",
+          description: "Files to add or replace, with their complete new content",
+          items: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] },
+        },
+        deletes: { type: "array", description: "Paths of files to delete", items: { type: "string" } },
+      },
+      required: ["branch", "message"],
+    },
+    method: "github.commit.Create",
+    params: (a, s) => {
+      if (!only(a, ["branch", "message", "files", "deletes"]) || !str(a.branch, 255) || !a.branch || !str(a.message, 2000) || !a.message.trim()) return "branch, message (1–2000 characters) and files or deletes";
+      const files = a.files === undefined ? [] : a.files;
+      const deletes = a.deletes === undefined ? [] : a.deletes;
+      if (!Array.isArray(files) || !Array.isArray(deletes) || files.length + deletes.length === 0 || files.length + deletes.length > 20) return "between 1 and 20 file changes";
+      for (const f of files) if (!f || typeof f !== "object" || !only(f as Record<string, unknown>, ["path", "content"]) || !str((f as Record<string, unknown>).path, 512) || typeof (f as Record<string, unknown>).content !== "string") return "each file needs a path and content";
+      if (deletes.some((d) => !str(d, 512))) return "each delete is a path";
+      return { repository: s.repository, branch: a.branch, message: a.message, ...(files.length && { files }), ...(deletes.length && { deletes }) };
+    },
+    summary: (a) => {
+      const files = Array.isArray(a.files) ? a.files.map((f) => String((f as Record<string, unknown>).path)) : [];
+      const deletes = Array.isArray(a.deletes) ? a.deletes.map((d) => `-${String(d)}`) : [];
+      return `commit to ${String(a.branch)}: ${[...files, ...deletes].join(", ").slice(0, 160)}`;
+    },
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);

@@ -1224,5 +1224,80 @@
       "isDefaultBranch": false
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent commit .github/workflows/ci.yml to agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        ".github/workflows/ci.yml"
+      ],
+      "touchesWorkflows": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to main",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "main",
+      "isDefaultBranch": true,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "DENY"
   }
 ]

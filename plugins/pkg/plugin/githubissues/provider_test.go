@@ -146,3 +146,49 @@ func TestRealProviderCreatesABranchFromTheDefaultBranch(t *testing.T) {
 		t.Fatalf("%s %v", def, err)
 	}
 }
+
+func TestRealProviderCommitsFastForwardOnly(t *testing.T) {
+	const head, next = "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef"
+	moved := false
+	newProvider := func() *realProvider {
+		return fakeGithub(t, `{"permissions":{"contents":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+			switch r.Method + " " + r.URL.EscapedPath() {
+			case "GET /repos/test-owner/test-repo/git/ref/heads/agent/dev/x":
+				return 200, `{"object":{"sha":"` + head + `"}}`
+			case "GET /repos/test-owner/test-repo/git/commits/" + head:
+				return 200, `{"tree":{"sha":"tree0"}}`
+			case "POST /repos/test-owner/test-repo/git/trees":
+				entries := body["tree"].([]any)
+				if body["base_tree"] != "tree0" || len(entries) != 2 || entries[0].(map[string]any)["content"] != "new" || entries[1].(map[string]any)["sha"] != nil {
+					t.Fatalf("tree %v", body)
+				}
+				return 201, `{"sha":"tree1"}`
+			case "POST /repos/test-owner/test-repo/git/commits":
+				if body["tree"] != "tree1" || body["parents"].([]any)[0] != head {
+					t.Fatalf("commit %v", body)
+				}
+				return 201, `{"sha":"` + next + `"}`
+			case "PATCH /repos/test-owner/test-repo/git/refs/heads/agent/dev/x":
+				if body["sha"] != next || body["force"] != false {
+					t.Fatalf("ref update %v", body)
+				}
+				if moved {
+					return 422, `{"message":"SECRET not a fast forward"}`
+				}
+				return 200, `{}`
+			}
+			t.Fatalf("unexpected %s %s", r.Method, r.URL)
+			return 500, ""
+		})
+	}
+	changes := []fileChange{{Path: "README.md", Content: "new"}, {Path: "old.txt", Delete: true}}
+	if sha, err := newProvider().Commit(context.Background(), "test-owner/test-repo", "agent/dev/x", "m", changes); err != nil || sha != next {
+		t.Fatalf("%s %v", sha, err)
+	}
+	moved = true
+	_, err := newProvider().Commit(context.Background(), "test-owner/test-repo", "agent/dev/x", "m", changes)
+	var pre precondition
+	if !asPrecondition(err, &pre) || strings.Contains(pre.msg, "SECRET") {
+		t.Fatalf("moved branch: %v", err)
+	}
+}

@@ -56,6 +56,10 @@ var actionContext = map[string][]ContextField{
 		{Name: "path", Type: ContextString, Doc: "The file or directory read, relative to the repository root (empty for the root)."},
 	},
 	"github.branch.Create": branchContext,
+	"github.commit.Create": append(append([]ContextField{}, branchContext...),
+		ContextField{Name: "paths", Type: ContextStringSet, Doc: "Every path the commit adds, changes or deletes."},
+		ContextField{Name: "touchesWorkflows", Type: ContextBool, Doc: "Whether any of those paths is under .github/workflows/."},
+	),
 }
 
 // branchContext is the context of every write to a branch.

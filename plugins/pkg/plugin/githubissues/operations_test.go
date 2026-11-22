@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -172,5 +173,81 @@ func TestMockBranchesCopyTheirBase(t *testing.T) {
 	}
 	if f, _ := m.ReadContents(ctx, repo, "README.md", "agent/a/x"); f.Content == "" {
 		t.Fatal("branch didn't copy main")
+	}
+}
+
+func commitReq(branch string, paths ...string) map[string]any {
+	files := []map[string]any{}
+	for _, p := range paths {
+		files = append(files, map[string]any{"path": p, "content": "SECRET SOURCE " + p})
+	}
+	return map[string]any{"repository": repo, "branch": branch, "message": "Fix typo", "files": files}
+}
+
+func TestCommitDecidesOnBranchAndPaths(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = ownBranches + `
+@id("no-workflows") forbid(principal is Agent, action == Action::"github.commit.Create", resource) when { context.touchesWorkflows };`
+	r, err := callOp(t, p, "github.commit.Create", "developer-agent", commitReq("agent/developer-agent/fix", "src/b.py", "README.md"))
+	if err != nil || r.Decision != authz.Allow || r.Status != "SUCCESS" || r.SHA == "" || r.Ref != "agent/developer-agent/fix" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if got := r.Context["paths"]; len(got.([]any)) != 2 || got.([]any)[0] != "README.md" {
+		t.Fatalf("paths not sorted into context: %v", got)
+	}
+	if !strings.Contains(provider.last, "Orbitport-Agent: developer-agent") || !strings.Contains(provider.last, "Orbitport-Request: "+r.RequestID) {
+		t.Fatalf("no trailers: %q", provider.last)
+	}
+	raw, _ := json.Marshal(policy.events)
+	if strings.Contains(string(raw), "SECRET SOURCE") || strings.Contains(string(raw), "Fix typo") {
+		t.Fatal("commit contents or message reached the audit log")
+	}
+	for name, params := range map[string]map[string]any{
+		"workflow file":    commitReq("agent/developer-agent/fix", ".github/workflows/ci.yml"),
+		"another's branch": commitReq("agent/security-agent/fix", "README.md"),
+		"default branch":   commitReq("main", "README.md"),
+	} {
+		provider.calls = 0
+		r, err := callOp(t, p, "github.commit.Create", "developer-agent", params)
+		if err != nil || r.Decision != authz.Deny || provider.calls != 0 {
+			t.Fatalf("%s: %+v %v", name, r, err)
+		}
+	}
+	tooMany := make([]string, maxCommitFiles+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("f%d.txt", i)
+	}
+	for name, params := range map[string]map[string]any{
+		"no files":       commitReq("agent/developer-agent/fix"),
+		"duplicate path": commitReq("agent/developer-agent/fix", "a.txt", "a.txt"),
+		"escape":         commitReq("agent/developer-agent/fix", "../x"),
+		"too many":       commitReq("agent/developer-agent/fix", tooMany...),
+		"too large":      {"repository": repo, "branch": "agent/developer-agent/fix", "message": "m", "files": []map[string]any{{"path": "a", "content": strings.Repeat("x", maxCommitBytes+1)}}},
+	} {
+		if _, err := callOp(t, p, "github.commit.Create", "developer-agent", params); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+}
+
+func TestMockCommitAppliesChanges(t *testing.T) {
+	m, ctx := newMockRepo(), context.Background()
+	if _, err := m.Commit(ctx, repo, "missing", "m", []fileChange{{Path: "a", Content: "x"}}); err == nil {
+		t.Fatal("committed to a missing branch")
+	}
+	_, _ = m.CreateBranch(ctx, repo, "agent/a/x", "")
+	before := m.heads["agent/a/x"]
+	sha, err := m.Commit(ctx, repo, "agent/a/x", "m", []fileChange{{Path: "README.md", Content: "fixed"}, {Path: "src/hello.py", Delete: true}})
+	if err != nil || sha == before {
+		t.Fatalf("%s %v", sha, err)
+	}
+	if f, _ := m.ReadContents(ctx, repo, "README.md", "agent/a/x"); f.Content != "fixed" {
+		t.Fatal("change not applied")
+	}
+	if f, _ := m.ReadContents(ctx, repo, "README.md", "main"); f.Content == "fixed" {
+		t.Fatal("main changed")
+	}
+	if _, err := m.Commit(ctx, repo, "agent/a/x", "m", []fileChange{{Path: "nope", Delete: true}}); err == nil {
+		t.Fatal("deleted a missing file")
 	}
 }

@@ -25,6 +25,7 @@ type mockRepo struct {
 	// maps it to its latest commit id.
 	branches map[string]map[string]string
 	heads    map[string]string
+	commits  int
 }
 
 func newMockRepo() *mockRepo {
@@ -145,4 +146,30 @@ func (m *mockRepo) CreateBranch(_ context.Context, _ string, branch, from string
 	}
 	m.branches[branch], m.heads[branch] = copied, head
 	return head, nil
+}
+
+func (m *mockRepo) Commit(_ context.Context, _ string, branch, _ string, changes []fileChange) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	files, ok := m.branches[branch]
+	if !ok {
+		return "", precondition{"branch not found"}
+	}
+	for _, ch := range changes {
+		if ch.Delete {
+			if _, ok := files[ch.Path]; !ok {
+				return "", precondition{"a file change already exists or is invalid"}
+			}
+		}
+	}
+	for _, ch := range changes {
+		if ch.Delete {
+			delete(files, ch.Path)
+		} else {
+			files[ch.Path] = ch.Content
+		}
+	}
+	m.commits++
+	m.heads[branch] = mockSHA(m.commits)
+	return m.heads[branch], nil
 }

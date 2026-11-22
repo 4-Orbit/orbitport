@@ -87,3 +87,14 @@ permit (
   resource == Repository::"demo-owner/orbitport-test"
 )
 when { context has branchAgent && context.branchAgent == principal };
+
+// Developers may commit to their own agent/<agent-id>/ branches, never to
+// workflow files (which run with the repository's CI permissions).
+@id("developer-commit-own-branches")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.commit.Create",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+when { context has branchAgent && context.branchAgent == principal }
+unless { context.touchesWorkflows };
