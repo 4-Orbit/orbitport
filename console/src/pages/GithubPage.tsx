@@ -15,8 +15,11 @@ export function GithubPage() {
   const agents = useSourceAgents("active", draft);
   const repositories = useRepositories();
   const mode = repositories.mode;
-  const [agentId, setAgentId] = useState("");
-  const [repository, setRepository] = useState("");
+  // The agent, repository and agent task survive leaving the page (and a
+  // reload), so coming back from another tab never quietly switches agent.
+  const remembered = recall();
+  const [agentId, setAgentId] = useState(remembered.agentId ?? "");
+  const [repository, setRepository] = useState(remembered.repository ?? "");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [task, setTask] = useState("");
@@ -27,16 +30,19 @@ export function GithubPage() {
   const [result, setResult] = useState<GithubIssueResult | null>(null);
   const [simulation, setSimulation] = useState<SimulateResult | null>(null);
   const feedbackBanner = useRef<HTMLDivElement>(null);
-  const [agentTask, setAgentTask] = useState("");
+  const [agentTask, setAgentTask] = useState(remembered.agentTask ?? "");
   const [confirmAgent, setConfirmAgent] = useState(false);
   const agentRun = useAgentRun();
   const agentRunning = !!agentRun.current && agentRun.current.status !== "done";
 
   useEffect(() => {
-    const ids = agents.data ?? [];
-    setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
+    // Wait for the list: until it loads, the remembered agent can't be checked.
+    if (!agents.data) return;
+    const ids = agents.data;
+    setAgentId((cur) => (cur && ids.includes(cur) ? cur : ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
   }, [agents.data]);
   useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
+  useEffect(() => remember({ agentId, repository, agentTask }), [agentId, repository, agentTask]);
   useEffect(() => { if (result || error) feedbackBanner.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [result, error]);
   const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); setConfirmGemini(false); };
 
@@ -144,4 +150,25 @@ export function GithubPage() {
       <span className="muted small">Policy v{result.policyVersion} · {result.mode.toUpperCase()}</span>
     </div></section>}
   </div>;
+}
+
+const FORM_KEY = "orbitport-github-form-v1";
+
+/** The page's last agent, repository and agent task (this browser tab only). */
+function recall(): { agentId?: string; repository?: string; agentTask?: string } {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(FORM_KEY) ?? "{}") as Record<string, unknown>;
+    const str = (x: unknown) => (typeof x === "string" ? x : undefined);
+    return { agentId: str(v.agentId), repository: str(v.repository), agentTask: str(v.agentTask) };
+  } catch {
+    return {};
+  }
+}
+
+function remember(v: { agentId: string; repository: string; agentTask: string }) {
+  try {
+    sessionStorage.setItem(FORM_KEY, JSON.stringify(v));
+  } catch {
+    // storage unavailable: the form just starts fresh next time
+  }
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -312,5 +313,32 @@ func TestRealProviderReadsInstallationPermissionsWithoutAToken(t *testing.T) {
 	got, err := p.Installation(context.Background())
 	if err != nil || len(got) != 2 || got["issues"] != "write" || got["metadata"] != "read" {
 		t.Fatalf("%v %v", got, err)
+	}
+}
+
+func TestRealProviderCommentsOnAPullRequestWithAPullRequestToken(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	p := &realProvider{appID: "123", installationID: "456", key: key, now: time.Now}
+	var scopes []string
+	posts := 0
+	p.client = &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		status, payload := 201, `{"id":5}`
+		if r.URL.Path == "/app/installations/456/access_tokens" {
+			raw, _ := json.Marshal(body["permissions"])
+			scopes = append(scopes, string(raw))
+			payload = `{"token":"t` + fmt.Sprint(len(scopes)) + `"}`
+		} else {
+			posts++
+			if r.Header.Get("Authorization") == "Bearer t1" {
+				status, payload = 403, `{"message":"Resource not accessible by integration"}`
+			}
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(payload)), Header: make(http.Header)}, nil
+	})}
+	id, err := p.Comment(context.Background(), "test-owner/test-repo", 27, "hi")
+	if err != nil || id != 5 || posts != 2 || len(scopes) != 2 || scopes[0] != `{"issues":"write"}` || scopes[1] != `{"pull_requests":"write"}` {
+		t.Fatalf("%d %v posts %d scopes %v", id, err, posts, scopes)
 	}
 }

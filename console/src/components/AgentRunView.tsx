@@ -26,7 +26,9 @@ export function AgentRunView({ state, onStop }: { state: AgentRunState; onStop: 
   return (
     <section className="panel" aria-live="polite" aria-label="Gemini agent run">
       <header className="panel-head">
-        <h2>Agent run</h2>
+        <h2>
+          Agent run · <span className="mono">{agentId}</span>
+        </h2>
         <span className="muted small">
           {run.steps.length} tool call{run.steps.length === 1 ? "" : "s"} · {denied} denied · {failed - denied} other problem{failed - denied === 1 ? "" : "s"} · {mode ? mode.toUpperCase() : "mode unknown"}
         </span>

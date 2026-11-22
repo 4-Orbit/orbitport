@@ -56,6 +56,16 @@ export function stepHelp(s: AgentStep, ctx: { repository: string; agentId: strin
     [/closed/, "The pull request is closed", ["Reopen it on GitHub, or open a new one."]],
     [/head invalid|base invalid/, "GitHub couldn't use a branch", ["Check that both branches exist. On a private repository the App also needs Contents: read."]],
   ];
+  if (/HTTP 403/.test(reason)) {
+    return {
+      title: "GitHub refused the App's token for this",
+      meaning: "The policy allowed this, but GitHub said the App's token isn't allowed to do it (403), so nothing was changed.",
+      fixes: [
+        "Check the App's repository permissions and that the installation accepted them (the org's Settings → Third-party Access → GitHub Apps → Configure).",
+        "Branch protection or repository rules can also refuse an App; check the repository's rulesets.",
+      ],
+    };
+  }
   for (const [re, title, f] of fixes) if (re.test(reason)) return { title, meaning: "The policy allowed this, but GitHub refused it (see the reason above). Nothing was changed.", fixes: f };
   return {
     title: s.status === "REFUSED" ? "GitHub refused it" : "The outcome is unknown",

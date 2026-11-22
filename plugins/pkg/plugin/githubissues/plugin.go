@@ -147,7 +147,8 @@ const grantedTTL = 30 * time.Second
 // (its lookups and its write). The console compares it with the
 // installation's grants before a Gemini run.
 var operationPermissions = map[string]map[string]string{
-	CreateAction:           {"issues": "write"},
+	CreateAction: {"issues": "write"},
+	// Comments on pull requests use pull_requests: write instead.
 	"github.issue.Comment": {"issues": "write"},
 	"github.contents.Read": {"contents": "read"},
 	"github.branch.Create": {"metadata": "read", "contents": "write"},

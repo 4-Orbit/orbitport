@@ -20,3 +20,9 @@ test("each kind of failure gets its own explanation", () => {
   assert.match(stepHelp({ tool: "t", summary: "", decision: "ALLOW", status: "REFUSED", reason: "GitHub refused the pull request: head invalid" }, ctx).fixes.join(" "), /Contents: read/);
   assert.match(stepHelp({ tool: "t", summary: "", decision: "ALLOW", status: "ERROR", reason: "the GitHub request failed" }, ctx).title, /unknown/);
 });
+
+test("a 403 points at App permissions and repository rules", () => {
+  const help = stepHelp({ tool: "t", summary: "", decision: "ALLOW", status: "ERROR", reason: "GitHub request refused (HTTP 403); check GitHub before retrying" }, ctx);
+  assert.match(help.title, /refused the App's token/);
+  assert.ok(help.fixes.some((f) => /rulesets/.test(f)));
+});

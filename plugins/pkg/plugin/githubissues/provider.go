@@ -315,14 +315,24 @@ func (p *realProvider) ReadContents(ctx context.Context, repo, path, ref string)
 }
 
 func (p *realProvider) Comment(ctx context.Context, repo string, number int64, body string) (int64, error) {
-	token, err := p.token(ctx, repo, map[string]string{"issues": "write"})
-	if err != nil {
-		return 0, err
-	}
 	var comment struct {
 		ID int64 `json:"id"`
 	}
-	if err := p.request(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), token, map[string]string{"body": body}, &comment, http.StatusCreated); err != nil {
+	post := func(perms map[string]string) error {
+		token, err := p.token(ctx, repo, perms)
+		if err != nil {
+			return err
+		}
+		return p.request(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), token, map[string]string{"body": body}, &comment, http.StatusCreated)
+	}
+	err := post(map[string]string{"issues": "write"})
+	// A pull request's conversation counts as the pull request: GitHub
+	// answers 403 to an issues-only token and creates nothing, so asking
+	// again with pull_requests: write can't duplicate the comment.
+	if r, ok := err.(refusal); ok && r.status == http.StatusForbidden {
+		err = post(map[string]string{"pull_requests": "write"})
+	}
+	if err != nil {
 		return 0, notFound(err, "issue")
 	}
 	if comment.ID <= 0 {
