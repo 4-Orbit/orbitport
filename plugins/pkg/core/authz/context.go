@@ -55,6 +55,14 @@ var actionContext = map[string][]ContextField{
 	"github.contents.Read": {
 		{Name: "path", Type: ContextString, Doc: "The file or directory read, relative to the repository root (empty for the root)."},
 	},
+	"github.branch.Create": branchContext,
+}
+
+// branchContext is the context of every write to a branch.
+var branchContext = []ContextField{
+	{Name: "branch", Type: ContextString, Doc: "The branch written."},
+	{Name: "isDefaultBranch", Type: ContextBool, Doc: "Whether that is the repository's default branch, read from GitHub."},
+	{Name: "branchAgent", Type: ContextAgent, Optional: true, Doc: "The agent an agent/<agent-id>/... branch belongs to; absent for other branches."},
 }
 
 // ContextFields returns the extra context fields of an action, in order.

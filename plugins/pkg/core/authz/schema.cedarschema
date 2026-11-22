@@ -27,8 +27,17 @@ entity Repository { tenant: String, owner: String, name: String };
 type TrustedContext = { currentTime: Long };
 // The repository path the read targets ("" is the root).
 type ContentsContext = { currentTime: Long, path: String };
+// A branch write. branchAgent is the agent an agent/<agent-id>/... branch
+// belongs to, so a policy can say "only your own branches".
+type BranchContext = { currentTime: Long, branch: String, isDefaultBranch: Bool, branchAgent?: Agent };
 
-action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code";
+
+action "github.branch.Create" in ["github.code"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: BranchContext,
+};
 
 action "github.contents.Read" in ["github.read"] appliesTo {
   principal: [Account, Agent],

@@ -337,6 +337,13 @@ func generatedTests() []TestCase {
 // trusted context, one ALLOW and the DENYs that matter per rule.
 func githubOperationTests() []TestCase {
 	demo := Resource{Type: "Repository", ID: "demo-owner/orbitport-test"}
+	branch := func(agent, name string, expect Decision) TestCase {
+		ctx := map[string]any{"branch": name, "isDefaultBranch": name == "main"}
+		if owner := strings.TrimPrefix(name, "agent/"); owner != name {
+			ctx["branchAgent"] = strings.SplitN(owner, "/", 2)[0]
+		}
+		return TestCase{Name: agent + " create branch " + name, AgentID: agent, Action: "github.branch.Create", Resource: demo, Context: ctx, Expect: expect}
+	}
 	read := func(agent, path string, expect Decision) TestCase {
 		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
 	}
@@ -346,6 +353,10 @@ func githubOperationTests() []TestCase {
 		read("security-agent", "README.md", Deny),
 		{Name: "developer-agent comment demo-owner/orbitport-test", AgentID: "developer-agent", Action: "github.issue.Comment", Resource: demo, Expect: Allow},
 		{Name: "security-agent comment demo-owner/orbitport-test", AgentID: "security-agent", Action: "github.issue.Comment", Resource: demo, Expect: Deny},
+		branch("developer-agent", "agent/developer-agent/fix", Allow),
+		branch("developer-agent", "agent/security-agent/fix", Deny),
+		branch("developer-agent", "main", Deny),
+		branch("security-agent", "agent/security-agent/fix", Deny),
 	}
 }
 

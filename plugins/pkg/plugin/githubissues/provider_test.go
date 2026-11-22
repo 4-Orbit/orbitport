@@ -117,3 +117,32 @@ func TestRealProviderCommentsWithAnIssuesToken(t *testing.T) {
 		t.Fatalf("%d %v", id, err)
 	}
 }
+
+func TestRealProviderCreatesABranchFromTheDefaultBranch(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	var steps []string
+	p := fakeGithub(t, `{"permissions":{"contents":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+		steps = append(steps, r.Method+" "+r.URL.EscapedPath())
+		switch r.URL.EscapedPath() {
+		case "/repos/test-owner/test-repo":
+			return 200, `{"default_branch":"trunk"}`
+		case "/repos/test-owner/test-repo/git/ref/heads/trunk":
+			return 200, `{"object":{"sha":"` + head + `"}}`
+		case "/repos/test-owner/test-repo/git/refs":
+			if body["ref"] != "refs/heads/agent/dev/x" || body["sha"] != head {
+				t.Fatalf("ref body %v", body)
+			}
+			return 201, `{}`
+		}
+		t.Fatalf("unexpected %s %s", r.Method, r.URL)
+		return 500, ""
+	})
+	sha, err := p.CreateBranch(context.Background(), "test-owner/test-repo", "agent/dev/x", "")
+	if err != nil || sha != head || len(steps) != 3 {
+		t.Fatalf("%s %v %v", sha, err, steps)
+	}
+	meta := fakeGithub(t, `{"permissions":{"metadata":"read"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) { return 200, `{"default_branch":"trunk"}` })
+	if def, err := meta.DefaultBranch(context.Background(), "test-owner/test-repo"); err != nil || def != "trunk" {
+		t.Fatalf("%s %v", def, err)
+	}
+}

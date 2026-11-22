@@ -1165,5 +1165,64 @@
       "id": "demo-owner/orbitport-test"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create branch agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent create branch agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create branch main",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "main",
+      "isDefaultBranch": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent create branch agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "DENY"
   }
 ]

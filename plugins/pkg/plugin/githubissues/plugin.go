@@ -49,6 +49,11 @@ type provider interface {
 	ReadContents(ctx context.Context, repo, path, ref string) (contents, error)
 	// Comment adds a comment to an issue and returns the comment id.
 	Comment(ctx context.Context, repo string, number int64, body string) (int64, error)
+	// DefaultBranch reads the repository's default branch (a lookup).
+	DefaultBranch(ctx context.Context, repo string) (string, error)
+	// CreateBranch creates branch at from (a branch or commit id; "" = the
+	// default branch) and returns the commit id it points to.
+	CreateBranch(ctx context.Context, repo, branch, from string) (string, error)
 }
 
 // contents is a file (Content set) or a directory (Entries set).
@@ -168,6 +173,7 @@ var handlers = map[string]handler{
 	CreateAction:           (*Plugin).createIssue,
 	"github.contents.Read": (*Plugin).readContents,
 	"github.issue.Comment": (*Plugin).commentIssue,
+	"github.branch.Create": (*Plugin).createBranch,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -330,6 +336,57 @@ func (p *Plugin) commentIssue(c *proto.GithubCallRequest) (operation, error) {
 		}
 		return out, nil
 	}}, nil
+}
+
+var agentBranchRE = regexp.MustCompile(`^agent/([a-z0-9][a-z0-9_-]{0,63})/.+`)
+
+// branchAgent returns the agent an agent/<agent-id>/... branch belongs to.
+func branchAgent(branch string) string {
+	if m := agentBranchRE.FindStringSubmatch(branch); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// branchContext is the trusted context of a write to branch (D-035).
+func (p *Plugin) branchContext(ctx context.Context, branch string) (map[string]any, error) {
+	def, err := p.provider.DefaultBranch(ctx, p.repository)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"branch": branch, "isDefaultBranch": branch == def}
+	if agent := branchAgent(branch); agent != "" {
+		out["branchAgent"] = agent
+	}
+	return out, nil
+}
+
+type branchParams struct {
+	Repository string `json:"repository"`
+	Branch     string `json:"branch"`
+	From       string `json:"from,omitempty"`
+}
+
+func (p *Plugin) createBranch(c *proto.GithubCallRequest) (operation, error) {
+	var args branchParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	if !repoRE.MatchString(args.Repository) || !validRef(args.Branch) || strings.HasPrefix(args.Branch, "refs/") || (args.From != "" && !validRef(args.From)) {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, a branch name and an optional from (branch or commit)")
+	}
+	return operation{
+		action:     "github.branch.Create",
+		repository: args.Repository,
+		lookup:     func(ctx context.Context) (map[string]any, error) { return p.branchContext(ctx, args.Branch) },
+		run: func(ctx context.Context, _ string) (outcome, error) {
+			sha, err := p.provider.CreateBranch(ctx, p.repository, args.Branch, args.From)
+			if err != nil {
+				return outcome{}, err
+			}
+			return outcome{Ref: args.Branch, SHA: sha}, nil
+		},
+	}, nil
 }
 
 // enforce runs one operation through policy, audit and the provider.

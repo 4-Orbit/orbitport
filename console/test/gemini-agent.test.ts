@@ -115,3 +115,13 @@ test("comment_on_issue needs a positive issue number", async () => {
   assert.deepEqual(calls, ["github.issue.Comment 3"]);
   assert.ok(run.steps[0].error);
 });
+
+test("create_branch passes the branch and optional base", async () => {
+  const gemini = fakeGemini([[call("create_branch", { branch: "agent/developer-agent/fix" }), call("create_branch", { branch: "agent/developer-agent/b", from: "dev" }, "c2")], [text("ok")]]);
+  const calls: Record<string, unknown>[] = [];
+  await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (_m, params) => (calls.push(params), { result: { decision: "ALLOW", status: "SUCCESS" } }));
+  assert.deepEqual(calls, [
+    { repository: "owner/repo", branch: "agent/developer-agent/fix" },
+    { repository: "owner/repo", branch: "agent/developer-agent/b", from: "dev" },
+  ]);
+});

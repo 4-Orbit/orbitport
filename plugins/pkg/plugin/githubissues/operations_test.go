@@ -3,6 +3,7 @@ package githubissues
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -102,5 +103,74 @@ func TestMockCommentNeedsAnExistingIssue(t *testing.T) {
 	n, _ := m.Create(ctx, repo, "t", "b")
 	if _, err := m.Comment(ctx, repo, n, "x"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ownBranches lets developer-agent write only its own agent/<id>/ branches.
+const ownBranches = `@id("own") permit(principal == Agent::"developer-agent", action in Action::"github.code", resource == Repository::"test-owner/test-repo") when { context has branchAgent && context.branchAgent == principal };`
+
+func TestBranchCreateOnlyInTheAgentsOwnNamespace(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = ownBranches
+	for _, tc := range []struct {
+		branch string
+		allow  bool
+	}{
+		{"agent/developer-agent/fix-typo", true},
+		{"agent/security-agent/fix-typo", false},
+		{"feature/x", false},
+	} {
+		provider.calls = 0
+		r, err := callOp(t, p, "github.branch.Create", "developer-agent", map[string]any{"repository": repo, "branch": tc.branch})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (r.Decision == authz.Allow) != tc.allow || (provider.calls == 1) != tc.allow {
+			t.Fatalf("%s: %+v", tc.branch, r)
+		}
+		if tc.allow && (r.Ref != tc.branch || r.SHA == "" || r.Context["isDefaultBranch"] != false) {
+			t.Fatalf("%s: outcome %+v", tc.branch, r)
+		}
+	}
+}
+
+func TestAgentsNeverWriteTheDefaultBranch(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = `@id("all") permit(principal, action, resource);`
+	r, err := callOp(t, p, "github.branch.Create", "developer-agent", map[string]any{"repository": repo, "branch": "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Decision != authz.Deny || provider.calls != 0 || len(r.DeterminingPolicies) != 1 || r.DeterminingPolicies[0] != "platform.agents-never-write-default-branch" {
+		t.Fatalf("default branch write: %+v", r)
+	}
+}
+
+func TestFailedLookupWritesNothing(t *testing.T) {
+	p, policy, provider := setup()
+	policy.policies = ownBranches
+	provider.lookupErr = errors.New("GitHub down")
+	r, err := callOp(t, p, "github.branch.Create", "developer-agent", map[string]any{"repository": repo, "branch": "agent/developer-agent/x"})
+	if err != nil || r.Status != "LOOKUP_FAILED" || r.Decision != authz.Deny || provider.calls != 0 {
+		t.Fatalf("%+v %v", r, err)
+	}
+	// No lookup at all for an unconfigured repository.
+	provider.lookups = 0
+	if _, err := callOp(t, p, "github.branch.Create", "developer-agent", map[string]any{"repository": "other/repo", "branch": "agent/developer-agent/x"}); err != nil || provider.lookups != 0 {
+		t.Fatal("looked up an unconfigured repository")
+	}
+}
+
+func TestMockBranchesCopyTheirBase(t *testing.T) {
+	m, ctx := newMockRepo(), context.Background()
+	sha, err := m.CreateBranch(ctx, repo, "agent/a/x", "")
+	if err != nil || sha != m.heads["main"] {
+		t.Fatalf("%s %v", sha, err)
+	}
+	if _, err := m.CreateBranch(ctx, repo, "agent/a/x", ""); err == nil {
+		t.Fatal("created a branch twice")
+	}
+	if f, _ := m.ReadContents(ctx, repo, "README.md", "agent/a/x"); f.Content == "" {
+		t.Fatal("branch didn't copy main")
 	}
 }

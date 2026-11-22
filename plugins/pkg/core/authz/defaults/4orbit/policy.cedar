@@ -77,3 +77,13 @@ permit (
   action == Action::"github.issue.Comment",
   resource == Repository::"demo-owner/orbitport-test"
 );
+
+// Developers may create branches, but only in their own agent/<agent-id>/
+// namespace. (Agents can never write the default branch: a platform rule.)
+@id("developer-own-branches")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.branch.Create",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+when { context has branchAgent && context.branchAgent == principal };

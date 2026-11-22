@@ -234,3 +234,72 @@ func (p *realProvider) Comment(ctx context.Context, repo string, number int64, b
 	}
 	return comment.ID, nil
 }
+
+// exists turns GitHub's 422 for an existing name into a stated refusal.
+func exists(err error, what string) error {
+	if r, ok := err.(refusal); ok && r.status == http.StatusUnprocessableEntity {
+		return precondition{what + " already exists or is invalid"}
+	}
+	return err
+}
+
+var commitIDRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+func (p *realProvider) DefaultBranch(ctx context.Context, repo string) (string, error) {
+	token, err := p.token(ctx, repo, map[string]string{"metadata": "read"})
+	if err != nil {
+		return "", err
+	}
+	var meta struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := p.request(ctx, http.MethodGet, "/repos/"+repo, token, nil, &meta, http.StatusOK); err != nil {
+		return "", err
+	}
+	if meta.DefaultBranch == "" {
+		return "", fmt.Errorf("invalid repository response")
+	}
+	return meta.DefaultBranch, nil
+}
+
+// headOf returns the commit a branch points to.
+func (p *realProvider) headOf(ctx context.Context, repo, token, branch string) (string, error) {
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := p.request(ctx, http.MethodGet, "/repos/"+repo+"/git/ref/heads/"+escapePath(branch), token, nil, &ref, http.StatusOK); err != nil {
+		return "", notFound(err, "branch")
+	}
+	if !commitIDRE.MatchString(ref.Object.SHA) {
+		return "", fmt.Errorf("invalid ref response")
+	}
+	return ref.Object.SHA, nil
+}
+
+func (p *realProvider) CreateBranch(ctx context.Context, repo, branch, from string) (string, error) {
+	token, err := p.token(ctx, repo, map[string]string{"contents": "write"})
+	if err != nil {
+		return "", err
+	}
+	sha := from
+	if !commitIDRE.MatchString(from) {
+		if from == "" {
+			var meta struct {
+				DefaultBranch string `json:"default_branch"`
+			}
+			if err := p.request(ctx, http.MethodGet, "/repos/"+repo, token, nil, &meta, http.StatusOK); err != nil {
+				return "", err
+			}
+			from = meta.DefaultBranch
+		}
+		if sha, err = p.headOf(ctx, repo, token, from); err != nil {
+			return "", err
+		}
+	}
+	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/git/refs", token, map[string]string{"ref": "refs/heads/" + branch, "sha": sha}, nil, http.StatusCreated); err != nil {
+		return "", exists(err, "branch")
+	}
+	return sha, nil
+}

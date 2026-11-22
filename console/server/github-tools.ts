@@ -82,6 +82,21 @@ GITHUB_TOOLS.push(
     },
     summary: (a) => `comment on #${String(a.number)}`,
   },
+  {
+    name: "create_branch",
+    description: "Create a branch from the default branch (or from another branch or commit). Name it agent/<your-agent-id>/<short-name>.",
+    parameters: {
+      type: "object",
+      properties: { branch: { type: "string", description: "New branch name" }, from: { type: "string", description: "Branch or commit to start from; omit for the default branch" } },
+      required: ["branch"],
+    },
+    method: "github.branch.Create",
+    params: (a, s) => {
+      if (!only(a, ["branch", "from"]) || !str(a.branch, 255) || !a.branch || (a.from !== undefined && !str(a.from, 255))) return "branch (up to 255 characters) and an optional from";
+      return { repository: s.repository, branch: a.branch, ...(a.from ? { from: a.from } : {}) };
+    },
+    summary: (a) => `branch ${String(a.branch)}${a.from ? ` from ${String(a.from)}` : ""}`,
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);

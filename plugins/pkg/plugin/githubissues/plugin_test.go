@@ -47,6 +47,9 @@ type providerStub struct {
 	fail  bool
 	// last records the text the provider was asked to write.
 	last string
+	// lookupErr fails every lookup; lookups counts them.
+	lookupErr error
+	lookups   int
 }
 
 func (p *providerStub) Create(context.Context, string, string, string) (int64, error) {
@@ -70,6 +73,18 @@ func (p *providerStub) Comment(_ context.Context, _ string, number int64, body s
 	p.calls++
 	p.last = body
 	return 99, nil
+}
+
+func (p *providerStub) DefaultBranch(context.Context, string) (string, error) {
+	p.lookups++
+	return "main", p.lookupErr
+}
+
+func (p *providerStub) CreateBranch(_ context.Context, _ string, branch, _ string) (string, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = branch
+	return "0123456789abcdef0123456789abcdef01234567", nil
 }
 
 // mustFollowDecision panics unless the decision audit was recorded first.

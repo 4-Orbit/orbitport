@@ -17,3 +17,10 @@ unless { principal.tenant == resource.tenant };
 // administration API. Policy tampering by an agent is ruled out here.
 @id("platform.agents-never-administer-policy")
 forbid (principal is Agent, action in Action::"policy", resource);
+
+// Agents never write to a repository's default branch directly; changes go
+// through a branch and a pull request. isDefaultBranch is read from GitHub
+// by plugin-github (D-035).
+@id("platform.agents-never-write-default-branch")
+forbid (principal is Agent, action in Action::"github.code", resource)
+when { context.isDefaultBranch };
