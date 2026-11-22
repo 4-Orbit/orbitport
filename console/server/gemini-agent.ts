@@ -41,8 +41,8 @@ export interface AgentRun {
   steps: AgentStep[];
   /** Gemini's closing message, or the console's when the run was cut short. */
   final: string | null;
-  /** nothing_allowed: the policy allows none of the tools, so Gemini wasn't called. denied: stopped after repeated denials. */
-  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied";
+  /** nothing_allowed: the policy allows none of the tools, so Gemini wasn't called. denied: stopped after repeated denials. stopped: the operator pressed Stop. */
+  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied" | "stopped";
   error?: string;
   /** The tools Gemini was offered. */
   tools: string[];
@@ -55,7 +55,15 @@ export type GithubCaller = (method: string, params: Record<string, unknown>) => 
 
 export interface GeminiAgent {
   /** allowedMethods: offer only tools for these github.* methods (from the preflight); all when omitted. */
-  run(input: { task: string; scope: ToolScope; mode: "mock" | "real" | null; allowedMethods?: Set<string> }, call: GithubCaller): Promise<AgentRun>;
+  /**
+   * signal: the operator's Stop. A pending Gemini call is aborted at once; a
+   * GitHub call in flight is let finish (its outcome would otherwise be
+   * unknown) and no further call is made. onStep reports progress.
+   */
+  run(
+    input: { task: string; scope: ToolScope; mode: "mock" | "real" | null; allowedMethods?: Set<string>; signal?: AbortSignal; onStep?: (steps: AgentStep[]) => void },
+    call: GithubCaller,
+  ): Promise<AgentRun>;
 }
 
 interface Part {
@@ -114,7 +122,7 @@ export function createGeminiAgent({
   if (!/^gemini-[a-z0-9.-]+$/.test(model)) throw new Error("Invalid Gemini model");
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-  async function turn(contents: Content[], system: string, offered: GithubTool[]): Promise<{ content?: Content; error?: string }> {
+  async function turn(contents: Content[], system: string, offered: GithubTool[], stop?: AbortSignal): Promise<{ content?: Content; error?: string; stopped?: boolean }> {
     const declarations = offered.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
     for (let attempt = 0; attempt < 2; attempt++) {
       let res: Response;
@@ -124,9 +132,10 @@ export function createGeminiAgent({
           headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
           body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, tools: [{ functionDeclarations: declarations }] }),
           redirect: "error",
-          signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+          signal: stop ? AbortSignal.any([AbortSignal.timeout(TURN_TIMEOUT_MS), stop]) : AbortSignal.timeout(TURN_TIMEOUT_MS),
         });
       } catch (e) {
+        if (stop?.aborted) return { stopped: true };
         return { error: e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? "Gemini timed out." : "Gemini could not be reached." };
       }
       // 503: briefly unavailable. 429: the API key's rate limit; wait as
@@ -134,9 +143,11 @@ export function createGeminiAgent({
       if ((res.status === 503 || res.status === 429) && attempt === 0) {
         const asked = Number(res.headers.get("retry-after"));
         await sleep(res.status === 503 ? 750 : Math.min(Number.isFinite(asked) && asked > 0 ? asked * 1000 : 5000, 10_000));
+        if (stop?.aborted) return { stopped: true };
         continue;
       }
       if (!res.ok) return { error: `Gemini API HTTP ${res.status} ${STATUS_CODES[res.status] || "Error"}` };
+      if (stop?.aborted) return { stopped: true };
       const data = (await res.json().catch(() => null)) as { candidates?: { content?: Content }[] } | null;
       const content = data?.candidates?.[0]?.content;
       if (!content || !Array.isArray(content.parts)) return { error: "Gemini returned no answer." };
@@ -146,7 +157,7 @@ export function createGeminiAgent({
   }
 
   return {
-    async run({ task, scope, mode, allowedMethods }, call) {
+    async run({ task, scope, mode, allowedMethods, signal, onStep }, call) {
       const offered = allowedMethods ? tools.filter((t) => allowedMethods.has(t.method)) : tools;
       const names = offered.map((t) => t.name);
       if (offered.length === 0) {
@@ -157,9 +168,12 @@ export function createGeminiAgent({
       const contents: Content[] = [{ role: "user", parts: [{ text: task }] }];
       const steps: AgentStep[] = [];
       let denialsInARow = 0;
+      const stopped = (): AgentRun => ({ steps, final: `Stopped by you after ${steps.length} tool call${steps.length === 1 ? "" : "s"}. Steps already done stay done.`, stopped: "stopped", tools: names });
       for (;;) {
+        if (signal?.aborted) return stopped();
         if (now() - started > RUN_TIME_LIMIT_MS) return { steps, final: null, stopped: "time_limit", tools: names };
-        const { content, error } = await turn(contents, system, offered);
+        const { content, error, stopped: cut } = await turn(contents, system, offered, signal);
+        if (cut || signal?.aborted) return stopped();
         if (!content) return { steps, final: null, stopped: "gemini_error", error, tools: names };
         contents.push(content);
         const calls = content.parts.filter((p) => p.functionCall);
@@ -169,6 +183,8 @@ export function createGeminiAgent({
         }
         const responses: Part[] = [];
         for (const part of calls) {
+          // Stop between tool calls; one already sent has been let finish.
+          if (signal?.aborted) return stopped();
           const fc = part.functionCall!;
           const name = fc.name ?? "";
           const args = fc.args && typeof fc.args === "object" && !Array.isArray(fc.args) ? fc.args : {};
@@ -207,7 +223,9 @@ export function createGeminiAgent({
             }
           }
           responses.push({ functionResponse: { name, ...(fc.id && { id: fc.id }), response } });
+          onStep?.([...steps]);
         }
+        if (signal?.aborted) return stopped();
         contents.push({ role: "user", parts: responses });
         // Repeated denials: the policy doesn't allow this work. Stop without
         // spending another Gemini turn on a summary.

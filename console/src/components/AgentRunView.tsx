@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentRun, AgentStep } from "../types.ts";
+import type { AgentRun, AgentRunState, AgentStep } from "../types.ts";
 import { DecisionBadge, PolicyChips } from "./Badges.tsx";
 import { InfoDialog } from "./Confirm.tsx";
 import { needsHelp, stepHelp } from "../agent-step-help.ts";
@@ -11,10 +11,15 @@ const stoppedText: Record<AgentRun["stopped"], string> = {
   gemini_error: "Stopped: Gemini failed.",
   nothing_allowed: "Not started: the active policy and the GitHub App installation allow none of the GitHub tools for this agent and repository. Gemini wasn't called.",
   denied: "Stopped after repeated denials, without another Gemini call.",
+  stopped: "Stopped by you. Steps already done stay done.",
 };
 
 /** The log of one Gemini agent run: every tool call and what the policy decided. */
-export function AgentRunView({ run, mode, agentId, repository }: { run: AgentRun; mode: "mock" | "real" | null; agentId: string; repository: string }) {
+/** A run in progress or finished: steps appear as they happen. */
+export function AgentRunView({ state, onStop }: { state: AgentRunState; onStop: () => void }) {
+  const live = state.status !== "done";
+  const run: AgentRun = state.run ?? { steps: state.steps, final: null, stopped: "done", tools: [], ...(state.error && { stopped: "gemini_error", error: state.error }) };
+  const { mode, agentId, repository } = state;
   const denied = run.steps.filter((s) => s.decision === "DENY").length;
   const failed = run.steps.filter(needsHelp).length;
   const [open, setOpen] = useState<{ step: AgentStep; n: number } | null>(null);
@@ -27,11 +32,20 @@ export function AgentRunView({ run, mode, agentId, repository }: { run: AgentRun
         </span>
       </header>
       <div className="panel-body stack">
-        <p className={run.stopped === "done" ? "muted small" : "builder-warning"}>
-          {stoppedText[run.stopped]}
-          {run.error ? ` ${run.error}` : ""}
-        </p>
-        {run.stopped !== "nothing_allowed" && (
+        {live ? (
+          <div className="row">
+            <span className="muted small">{state.status === "stopping" ? "Stopping at the next safe point…" : `Gemini is working… ${state.steps.length} tool call${state.steps.length === 1 ? "" : "s"} so far.`}</span>
+            <button type="button" className="button small danger" disabled={state.status === "stopping"} onClick={onStop}>
+              {state.status === "stopping" ? "Stopping…" : "Stop"}
+            </button>
+          </div>
+        ) : (
+          <p className={run.stopped === "done" ? "muted small" : "builder-warning"}>
+            {stoppedText[run.stopped]}
+            {run.error ? ` ${run.error}` : ""}
+          </p>
+        )}
+        {!live && run.stopped !== "nothing_allowed" && (
           <p className="muted small">
             Tools offered to Gemini (the ones the active policy and the App installation could allow): <span className="mono">{run.tools.join(", ") || "none"}</span>
           </p>

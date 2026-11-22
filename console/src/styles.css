@@ -2091,3 +2091,33 @@ tr.row-active td {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Gemini agent run toast ---------- */
+
+.agent-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  width: min(380px, calc(100vw - 36px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.agent-toast-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-toast-last {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -219,3 +219,38 @@ test("list_pull_requests reads open pull requests through github.pr.Get", async 
   assert.deepEqual(calls, [{ method: "github.pr.Get", params: { repository: "owner/repo" } }]);
   assert.match(gemini.requests[0].systemInstruction.parts[0].text, /never guess a pull request number/);
 });
+
+test("Stop during a Gemini turn cancels it, and no GitHub call follows", async () => {
+  const stop = new AbortController();
+  let calls = 0;
+  const fetchImpl = ((_url: string, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+      setTimeout(() => stop.abort(), 5);
+    })) as typeof fetch;
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl }).run({ task: "t", scope, mode: "real", signal: stop.signal }, async () => (calls++, { result: {} }));
+  assert.equal(run.stopped, "stopped");
+  assert.equal(calls, 0);
+});
+
+test("Stop during a GitHub call lets it finish, then makes no further call", async () => {
+  const stop = new AbortController();
+  const gemini = fakeGemini([[call("create_branch", { branch: "agent/developer-agent/a" }), call("commit_files", { branch: "agent/developer-agent/a", message: "m", files: [{ path: "a", content: "b" }] }, "c2")], [text("never")]]);
+  const sent: string[] = [];
+  const progress: number[] = [];
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run(
+    { task: "t", scope, mode: "real", signal: stop.signal, onStep: (steps) => progress.push(steps.length) },
+    async (method) => {
+      sent.push(method);
+      stop.abort(); // Stop pressed while this GitHub call is in flight.
+      await new Promise((r) => setTimeout(r, 5));
+      return { result: { decision: "ALLOW", status: "SUCCESS" } };
+    },
+  );
+  assert.deepEqual(sent, ["github.branch.Create"], "the in-flight call finished; the next one was never sent");
+  assert.equal(run.steps.length, 1);
+  assert.equal(run.steps[0].status, "SUCCESS");
+  assert.equal(run.stopped, "stopped");
+  assert.deepEqual(progress, [1]);
+  assert.equal(gemini.requests.length, 1, "no Gemini turn after Stop");
+});

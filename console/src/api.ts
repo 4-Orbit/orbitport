@@ -78,9 +78,13 @@ export const api = {
     (await consoleCall<{ result: T.GithubIssueResult }>("/api/github/issues", { agentId, repository, title, body })).result,
   createGeminiGithubIssue: (agentId: string, repository: string, prompt: string, confirmCreate: boolean) =>
     consoleCall<{ result: T.GithubIssueResult; proposal: { title: string; body: string } }>("/api/github/gemini-issues", { agentId, repository, prompt, confirmCreate }),
-  /** A multi-step Gemini task; every tool call is decided by the active policy. */
-  runGeminiAgent: (agentId: string, repository: string, task: string, confirm: boolean) =>
-    consoleCall<{ run: T.AgentRun; mode: "mock" | "real" | null }>("/api/github/gemini-agent", { agentId, repository, task, confirm }),
+  /** Starts a multi-step Gemini task on the server; every tool call is decided by the active policy. */
+  startGeminiAgent: (agentId: string, repository: string, task: string, confirm: boolean) =>
+    consoleCall<T.AgentRunState>("/api/github/gemini-agent", { agentId, repository, task, confirm }),
+  agentRun: (id: string) => consoleCall<T.AgentRunState>(`/api/github/gemini-agent/runs/${encodeURIComponent(id)}`),
+  latestAgentRun: () => consoleCall<T.AgentRunState | null>("/api/github/gemini-agent/runs/latest"),
+  /** Stop at the next safe point: a pending Gemini call is cut, a GitHub call in flight finishes first. */
+  stopAgentRun: (id: string) => consoleCall<T.AgentRunState>(`/api/github/gemini-agent/runs/${encodeURIComponent(id)}/stop`, {}),
   /** Run it for real: one KMS request as the agent, decided by enforcement. */
   runForReal: async (agentId: string, action: string, keyId: string) => (await consoleCall<{ result: T.RunResult }>("/api/run", { agentId, action, keyId })).result,
   /** Token hashes of this console's runs (for Activity labels). */

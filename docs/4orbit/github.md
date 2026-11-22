@@ -105,6 +105,8 @@ Set `GEMINI_API_KEY` in `.4orbit.env` (copy `.4orbit.env.example` if needed), th
 
 Before calling Gemini, the console checks which tools could work at all: the active policy (one batched `policy.Simulate`) and the App installation's granted permissions (`github.GetInstallation`, one read-only GitHub call, cached for 30 seconds by the plugin). Gemini is offered only those tools; if none could work, it isn't called, and the run log says which policy rules or App permissions are missing. Three denials in a row also end a run without another Gemini call. These checks only save tokens: enforcement still decides every real call.
 
+The run lives in the console server, so it continues while you switch pages: the GitHub page shows each step as it happens, and other pages show a corner toast with the progress and a **Stop** button (it stays until the run ends, then lingers for 3 seconds). A reload reattaches to a run in progress. **Stop** ends the run at the next safe point: a pending Gemini call is cancelled at once, while a GitHub call already sent is let finish (stopping it midway would leave its outcome unknown) and nothing further is sent. Steps already done stay done. One run at a time per console.
+
 Gemini can't choose the agent or the repository, and has no other path to GitHub. A run is limited to 12 tool calls and 2 minutes, and the console accepts at most five Gemini tasks per minute. Repository text (files, issues, pull requests) is untrusted input to Gemini; write policies as if the agent were already compromised. In LIVE mode, allowed calls make real changes; check the agent, repository and task before you confirm.
 
 Without `GEMINI_API_KEY`, everything else still works and the Gemini endpoints report that they are unconfigured.

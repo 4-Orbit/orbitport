@@ -4,6 +4,7 @@ import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
 import { parseRunRequest, parseGithubIssueRequest, RunError, Runner } from "./run.ts";
 import { GeminiError, type GeminiIssueClient } from "./gemini.ts";
 import type { AgentRun, GeminiAgent } from "./gemini-agent.ts";
+import { AgentRuns } from "./agent-runs.ts";
 import { allowedMethods as allowedMethods_, appAllowedMethods, preflightRequests } from "./agent-preflight.ts";
 import { GITHUB_TOOLS } from "./github-tools.ts";
 import { AGENT_ID_RE } from "./run.ts";
@@ -69,6 +70,7 @@ export function createApp(opts: AppOptions): Server {
     recentGeminiTasks.push(now);
     return true;
   };
+  const runs = new AgentRuns(opts.now ?? Date.now);
   const runner = new Runner({
     gatewayUrl: opts.gatewayUrl,
     fetchImpl: opts.fetchImpl ?? fetch,
@@ -76,14 +78,14 @@ export function createApp(opts: AppOptions): Server {
     sleep: opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
   });
   return createServer((req, res) => {
-    route(req, res, opts, runner, reserveGeminiTask).catch((err: unknown) => {
+    route(req, res, opts, runner, reserveGeminiTask, runs).catch((err: unknown) => {
       console.error(`[console] ${req.method} ${req.url}: ${err instanceof Error ? err.message : err}`);
       if (!res.headersSent) sendJson(res, 500, { error: "internal error" });
     });
   });
 }
 
-async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions, runner: Runner, reserveGeminiTask: () => boolean): Promise<void> {
+async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions, runner: Runner, reserveGeminiTask: () => boolean, runs: AgentRuns): Promise<void> {
   const hosts = new Set(opts.allowedHosts ?? DEFAULT_HOSTS);
   if (!hosts.has(hostnameOf(req.headers.host))) return sendJson(res, 403, { error: "forbidden host" });
 
@@ -176,6 +178,25 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
 
   // A multi-step Gemini task: Gemini calls GitHub tools, each one a github.*
   // request made with the agent's own token and decided by the active policy.
+  // Progress and Stop for Gemini agent runs (the run lives in this server,
+  // so it continues while the operator switches pages).
+  const runPath = /^\/api\/github\/gemini-agent\/runs\/([A-Za-z0-9_-]{1,32}|latest)(\/stop)?$/.exec(pathname);
+  if (runPath) {
+    const [, id, stop] = runPath;
+    if (stop) {
+      if (req.method !== "POST") return sendJson(res, 405, { error: "method not allowed" });
+      if (!runs.stop(id)) return sendJson(res, 409, { error: "that run isn't running" });
+      return sendJson(res, 200, runs.get(id));
+    }
+    if (req.method !== "GET") return sendJson(res, 405, { error: "method not allowed" });
+    const state = id === "latest" ? runs.latest() : runs.get(id);
+    if (!state) return id === "latest" ? sendJson(res, 200, null) : sendJson(res, 404, { error: "no such run" });
+    return sendJson(res, 200, state);
+  }
+
+  // A multi-step Gemini task: Gemini calls GitHub tools, each one a github.*
+  // request made with the agent's own token and decided by the active policy.
+  // Starts the run and answers at once with its id; progress is polled.
   if (pathname === "/api/github/gemini-agent") {
     if (req.method !== "POST") return sendJson(res, 405, { error: "method not allowed" });
     if (!/^application\/json\b/.test(req.headers["content-type"] ?? "")) return sendJson(res, 415, { error: "expected application/json" });
@@ -190,39 +211,40 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (typeof repository !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(repository)) return sendJson(res, 400, { error: "choose a repository" });
     const token = readToken(opts.tokenFile);
     if (!token) return sendJson(res, 503, { error: "operator token missing: run make 4orbit-seed" });
+    if (runs.active()) return sendJson(res, 409, { error: "a Gemini agent run is already in progress; stop it or wait for it to finish" });
     if (!reserveGeminiTask()) return sendJson(res, 429, { error: "at most 5 Gemini tasks per minute; try again shortly" });
+    const agent = opts.geminiAgent;
     const mode = await runner.githubMode(token);
-    // Preflight against the active policy (no Gemini call): offer Gemini only
-    // the tools that could be allowed, and none at all if nothing is.
-    const methods = GITHUB_TOOLS.map((t) => t.method);
-    const checks = preflightRequests(agentId, repository, methods);
-    const [byPolicy, installation] = await Promise.all([
-      runner.simulate(token, checks.map((c) => c.request)).then((results) => allowedMethods_(checks, results)),
-      runner.githubInstallation(token),
-    ]);
-    // And what the GitHub App installation can do (a read-only GitHub call,
-    // cached by the plugin): a tool it lacks the permissions for would only
-    // fail after Gemini chose it.
-    const byApp = installation ? appAllowedMethods(methods, installation.required, installation.permissions) : null;
-    let allowedMethods: Set<string> | undefined;
-    if (byPolicy || byApp) allowedMethods = new Set(methods.filter((m) => (!byPolicy || byPolicy.has(m)) && (!byApp || byApp.allowed.has(m))));
-    const skipped: NonNullable<AgentRun["skipped"]> = [];
-    for (const m of new Set(methods)) {
-      if (byPolicy && !byPolicy.has(m)) skipped.push({ method: m, why: "policy" });
-      else if (byApp?.missing[m]) skipped.push({ method: m, why: "app", missing: byApp.missing[m] });
-    }
-    try {
-      const run = await opts.geminiAgent.run({ task, scope: { agentId, repository }, mode, ...(allowedMethods && { allowedMethods }) }, (method, params) => runner.githubCall(token, agentId, method, params));
+    const state = runs.start({ agentId, repository, mode }, async (signal, onStep) => {
+      // Preflight (no Gemini call): the tools the active policy could allow,
+      // and those the GitHub App installation has the permissions for (a
+      // read-only GitHub call, cached by the plugin).
+      const methods = GITHUB_TOOLS.map((t) => t.method);
+      const checks = preflightRequests(agentId, repository, methods);
+      const [byPolicy, installation] = await Promise.all([
+        runner.simulate(token, checks.map((c) => c.request)).then((results) => allowedMethods_(checks, results)),
+        runner.githubInstallation(token),
+      ]);
+      const byApp = installation ? appAllowedMethods(methods, installation.required, installation.permissions) : null;
+      let allowedMethods: Set<string> | undefined;
+      if (byPolicy || byApp) allowedMethods = new Set(methods.filter((m) => (!byPolicy || byPolicy.has(m)) && (!byApp || byApp.allowed.has(m))));
+      const skipped: NonNullable<AgentRun["skipped"]> = [];
+      for (const m of new Set(methods)) {
+        if (byPolicy && !byPolicy.has(m)) skipped.push({ method: m, why: "policy" });
+        else if (byApp?.missing[m]) skipped.push({ method: m, why: "app", missing: byApp.missing[m] });
+      }
+      const run = await agent.run(
+        { task, scope: { agentId, repository }, mode, signal, onStep, ...(allowedMethods && { allowedMethods }) },
+        (method, params) => runner.githubCall(token, agentId, method, params),
+      );
       run.skipped = skipped;
       if (run.stopped === "nothing_allowed" && skipped.some((s) => s.why === "app")) {
         const lacks = [...new Set(skipped.flatMap((s) => s.missing ?? []))].sort();
         run.final = `Gemini wasn't called: the policy and the GitHub App installation together allow none of the tools. The installation lacks ${lacks.join(", ")}; give the App those permissions and accept them on the installation.`;
       }
-      return sendJson(res, 200, { run, mode });
-    } catch (error) {
-      if (error instanceof RunError) return sendJson(res, error.status, { error: error.message });
-      throw error;
-    }
+      return run;
+    });
+    return sendJson(res, 202, state);
   }
 
   // Token hashes of console runs, so Activity can label those events.

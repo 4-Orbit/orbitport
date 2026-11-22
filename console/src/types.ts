@@ -360,11 +360,25 @@ export interface AgentStep {
 export interface AgentRun {
   steps: AgentStep[];
   final: string | null;
-  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied";
+  stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied" | "stopped";
   error?: string;
   /** The tools Gemini was offered (only those the active policy and the App installation could allow). */
   tools: string[];
   skipped?: { method: string; why: "policy" | "app"; missing?: string[] }[];
+}
+
+/** A Gemini agent run held by the console server (console/server/agent-runs.ts). */
+export interface AgentRunState {
+  id: string;
+  agentId: string;
+  repository: string;
+  mode: "mock" | "real" | null;
+  startedAt: number;
+  status: "running" | "stopping" | "done";
+  steps: AgentStep[];
+  run?: AgentRun;
+  error?: string;
+  finishedAt?: number;
 }
 
 export interface GithubIssueResult {

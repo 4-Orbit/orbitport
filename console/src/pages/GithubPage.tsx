@@ -5,7 +5,8 @@ import { EntityPicker } from "../components/EntityPicker.tsx";
 import { useRepositories, useSourceAgents } from "./shared.ts";
 import { ExplanationView } from "../components/Explanation.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
-import type { AgentRun, GithubIssueResult, SimulateResult } from "../types.ts";
+import type { GithubIssueResult, SimulateResult } from "../types.ts";
+import { useAgentRun } from "../agent-run.tsx";
 import { AgentRunView } from "../components/AgentRunView.tsx";
 
 export function GithubPage() {
@@ -28,7 +29,8 @@ export function GithubPage() {
   const feedbackBanner = useRef<HTMLDivElement>(null);
   const [agentTask, setAgentTask] = useState("");
   const [confirmAgent, setConfirmAgent] = useState(false);
-  const [agentRun, setAgentRun] = useState<{ run: AgentRun; mode: "mock" | "real" | null } | null>(null);
+  const agentRun = useAgentRun();
+  const agentRunning = !!agentRun.current && agentRun.current.status !== "done";
 
   useEffect(() => {
     const ids = agents.data ?? [];
@@ -65,13 +67,13 @@ export function GithubPage() {
   }
 
   async function runAgent() {
-    setBusy(true); setError(null); setAgentRun(null);
+    setError(null);
     try {
-      setAgentRun(await api.runGeminiAgent(agentId, repository, agentTask, confirmAgent));
+      await agentRun.start(agentId, repository, agentTask);
       setConfirmAgent(false);
     } catch (e) {
-      setError(`${(e as Error).message}. Check Activity and GitHub before trying again; an interrupted run may have made changes.`);
-    } finally { setBusy(false); }
+      setError((e as Error).message);
+    }
   }
 
   const simulated = simulation?.results[0];
@@ -119,11 +121,15 @@ export function GithubPage() {
         <p>Gemini works on a task in the selected repository as the selected agent, using GitHub tools. <strong>Every tool call is checked by the active policy</strong>; denied calls are reported back to Gemini and recorded in Activity.</p>
         <label className="field"><span>Task</span><textarea value={agentTask} maxLength={4000} rows={5} disabled={busy} onChange={(e) => { setAgentTask(e.target.value); setConfirmAgent(false); }} placeholder="e.g. Read README.md, fix the typo in the first paragraph on a new branch, and open a pull request" required /></label>
         <label className="row"><input type="checkbox" checked={confirmAgent} disabled={busy} onChange={(e) => setConfirmAgent(e.target.checked)} /><span>{mode === "real" ? "I understand Gemini may make real changes in this repository (issues, branches, commits, pull requests) wherever the policy allows." : "I understand Gemini will run against the mock repository."}</span></label>
-        <button type="submit" className="button primary" disabled={busy || !mode || !repository || !agentId || !agentTask.trim() || !confirmAgent}>{busy ? "Gemini is working…" : "Run Gemini agent"}</button>
-        <p className="muted small">At most 12 tool calls and 2 minutes per run. Gemini can't choose the agent or the repository. Nothing is retried automatically.</p>
+        <div className="row">
+          <button type="submit" className="button primary" disabled={busy || agentRunning || !mode || !repository || !agentId || !agentTask.trim() || !confirmAgent}>{agentRunning ? "Gemini is working…" : "Run Gemini agent"}</button>
+          {agentRunning && <button type="button" className="button danger" disabled={agentRun.current?.status === "stopping"} onClick={() => void agentRun.stop()}>{agentRun.current?.status === "stopping" ? "Stopping…" : "Stop"}</button>}
+        </div>
+        <p className="muted small">At most 12 tool calls and 2 minutes per run. The run continues if you switch pages (a corner toast shows its progress). Stop ends it at the next safe point: a pending Gemini call is cancelled, a GitHub call already sent finishes first. Gemini can't choose the agent or the repository. Nothing is retried automatically.</p>
+        {agentRun.error && <p className="field-hint">{agentRun.error}</p>}
       </form>
     </section>
-    {agentRun && <AgentRunView run={agentRun.run} mode={agentRun.mode} agentId={agentId} repository={repository} />}
+    {agentRun.current && <AgentRunView state={agentRun.current} onStop={() => void agentRun.stop()} />}
     {simulated && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>Policy check · {simulation?.source}</h2><div><DecisionBadge decision={simulated.decision} /> <PolicyChips ids={simulated.determiningPolicies} /></div>
       {simulated.explanation && <ExplanationView explanation={simulated.explanation} request={{ agentId: simulated.request.agentId, action: simulated.request.action, resource: simulated.request.resource.id, resourceType: "Repository" }} />}

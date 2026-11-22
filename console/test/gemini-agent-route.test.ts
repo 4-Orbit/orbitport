@@ -9,6 +9,18 @@ import { createApp } from "../server/app.ts";
 import type { GeminiAgent } from "../server/gemini-agent.ts";
 import { GITHUB_TOOLS } from "../server/github-tools.ts";
 
+/** Starts a run and polls until it finishes; returns the final state. */
+async function runToEnd(base: string, payload: Record<string, unknown> = body): Promise<{ status: number; state: { id: string; status: string; run?: Record<string, unknown> } }> {
+  const res = await fetch(`${base}/api/github/gemini-agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (res.status !== 202) return { status: res.status, state: (await res.json()) as never };
+  let state = (await res.json()) as { id: string; status: string; run?: Record<string, unknown> };
+  for (let i = 0; i < 200 && state.status !== "done"; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    state = (await (await fetch(`${base}/api/github/gemini-agent/runs/${state.id}`)).json()) as typeof state;
+  }
+  return { status: 202, state };
+}
+
 const agentToken = `header.${Buffer.from('{"jti":"agent-run"}').toString("base64url")}.signature`;
 const body = { agentId: "developer-agent", repository: "owner/repo", task: "fix the README", confirm: true };
 
@@ -30,6 +42,7 @@ async function fixture(agent?: GeminiAgent) {
   await new Promise<void>((r) => app.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
   return {
+    base,
     seen,
     post: (changes: Record<string, unknown> = {}) => fetch(`${base}/api/github/gemini-agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, ...changes }) }),
     close: async () => {
@@ -66,8 +79,9 @@ test("tool calls go out with the agent's token, never the operator's", async (t)
     },
   });
   t.after(f.close);
-  const res = await f.post();
-  assert.equal(res.status, 200);
+  const { status, state } = await runToEnd(f.base);
+  assert.equal(status, 202);
+  assert.equal(state.status, "done");
   const issue = f.seen.find((s) => s.method === "github.issue.Create");
   assert.equal(issue?.auth, `Bearer ${agentToken}`);
   assert.ok(!f.seen.some((s) => s.method === "policy.Activate"));
@@ -99,8 +113,8 @@ test("a preflight that allows nothing never asks Gemini", async (t) => {
     await new Promise<void>((r) => gateway.close(() => r()));
     rmSync(dir, { recursive: true, force: true });
   });
-  const res = await fetch(`http://127.0.0.1:${(app.address() as AddressInfo).port}/api/github/gemini-agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  assert.equal(res.status, 200);
+  const { status } = await runToEnd(`http://127.0.0.1:${(app.address() as AddressInfo).port}`);
+  assert.equal(status, 202);
   assert.equal(simulated, 1);
   assert.equal(offered?.size, 0);
 });
@@ -133,14 +147,46 @@ test("tools the App installation can't serve are never offered, and none means n
     await new Promise<void>((r) => gateway.close(() => r()));
     rmSync(dir, { recursive: true, force: true });
   });
-  const post = () => fetch(`http://127.0.0.1:${(app.address() as AddressInfo).port}/api/github/gemini-agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const post = async () => (await runToEnd(`http://127.0.0.1:${(app.address() as AddressInfo).port}`)).state;
   type Out = { run: { skipped: { method: string; why: string; missing?: string[] }[]; final?: string } };
-  let res = (await (await post()).json()) as Out;
+  let res = (await post()) as unknown as Out;
   assert.ok(offered?.has("github.issue.Create"));
   assert.ok(!offered?.has("github.contents.Read"));
   assert.deepEqual(res.run.skipped.find((s) => s.method === "github.contents.Read"), { method: "github.contents.Read", why: "app", missing: ["contents: read"] });
   granted = {};
-  res = (await (await post()).json()) as Out;
+  res = (await post()) as unknown as Out;
   assert.equal(offered?.size, 0);
   assert.match(String(res.run.final), /installation lacks contents: read, issues: write/);
+});
+
+test("one run at a time; a run can be stopped and read back", async (t) => {
+  let release: () => void = () => undefined;
+  const f = await fixture({
+    async run({ signal }) {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+        signal?.addEventListener("abort", () => resolve());
+      });
+      return { steps: [], final: signal?.aborted ? "stopped" : "done", stopped: signal?.aborted ? "stopped" : "done", tools: [] };
+    },
+  });
+  t.after(f.close);
+  const first = await f.post();
+  assert.equal(first.status, 202);
+  const { id } = (await first.json()) as { id: string };
+  assert.equal((await f.post()).status, 409, "a second run while one is in progress");
+  const latest = (await (await fetch(`${f.base}/api/github/gemini-agent/runs/latest`)).json()) as { id: string; status: string };
+  assert.equal(latest.id, id);
+  assert.equal(latest.status, "running");
+  const stop = await fetch(`${f.base}/api/github/gemini-agent/runs/${id}/stop`, { method: "POST" });
+  assert.equal(stop.status, 200);
+  let state = { status: "" , run: undefined as undefined | { stopped: string } };
+  for (let i = 0; i < 100 && state.status !== "done"; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    state = (await (await fetch(`${f.base}/api/github/gemini-agent/runs/${id}`)).json()) as typeof state;
+  }
+  assert.equal(state.run?.stopped, "stopped");
+  assert.equal((await fetch(`${f.base}/api/github/gemini-agent/runs/${id}/stop`, { method: "POST" })).status, 409, "stopping a finished run");
+  assert.equal((await fetch(`${f.base}/api/github/gemini-agent/runs/nope`)).status, 404);
+  release();
 });
