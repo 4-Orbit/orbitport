@@ -123,7 +123,7 @@ export function GithubPage() {
         <p className="muted small">At most 12 tool calls and 2 minutes per run. Gemini can't choose the agent or the repository. Nothing is retried automatically.</p>
       </form>
     </section>
-    {agentRun && <AgentRunView run={agentRun.run} mode={agentRun.mode} />}
+    {agentRun && <AgentRunView run={agentRun.run} mode={agentRun.mode} agentId={agentId} repository={repository} />}
     {simulated && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>Policy check · {simulation?.source}</h2><div><DecisionBadge decision={simulated.decision} /> <PolicyChips ids={simulated.determiningPolicies} /></div>
       {simulated.explanation && <ExplanationView explanation={simulated.explanation} request={{ agentId: simulated.request.agentId, action: simulated.request.action, resource: simulated.request.resource.id, resourceType: "Repository" }} />}

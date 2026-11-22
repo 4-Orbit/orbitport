@@ -149,7 +149,7 @@ func (p *realProvider) request(ctx context.Context, method, path, token string, 
 		accepted = accepted || res.StatusCode == code
 	}
 	if !accepted {
-		return refusal{status: res.StatusCode}
+		return refusal{status: res.StatusCode, detail: validationDetail(res.Body)}
 	}
 	if into == nil {
 		return nil
@@ -160,10 +160,59 @@ func (p *realProvider) request(ctx context.Context, method, path, token string, 
 	return nil
 }
 
-// refusal is a non-success GitHub status, without GitHub's message.
-type refusal struct{ status int }
+// refusal is a non-success GitHub status. detail is the plugin's own
+// classification of GitHub's validation errors (never GitHub's text).
+type refusal struct {
+	status int
+	detail string
+}
 
-func (r refusal) Error() string { return fmt.Sprintf("GitHub request refused (HTTP %d)", r.status) }
+func (r refusal) Error() string {
+	if r.detail != "" {
+		return fmt.Sprintf("GitHub request refused (HTTP %d: %s)", r.status, r.detail)
+	}
+	return fmt.Sprintf("GitHub request refused (HTTP %d)", r.status)
+}
+
+var errorTokenRE = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+// validationDetail classifies a GitHub error body using only well-known
+// phrases and GitHub's own field and code identifiers, so no free text
+// from GitHub is ever passed on.
+func validationDetail(body io.Reader) string {
+	var e struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Field   string `json:"field"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if json.NewDecoder(io.LimitReader(body, 64*1024)).Decode(&e) != nil {
+		return ""
+	}
+	texts := []string{e.Message}
+	for _, item := range e.Errors {
+		texts = append(texts, item.Message)
+	}
+	for _, t := range texts {
+		switch {
+		case strings.Contains(t, "A pull request already exists"):
+			return "a pull request is already open for this branch"
+		case strings.Contains(t, "No commits between"):
+			return "the branch has no commits that aren't on the base"
+		case strings.Contains(t, "Reference already exists"):
+			return "that branch already exists"
+		}
+	}
+	var parts []string
+	for _, item := range e.Errors {
+		if errorTokenRE.MatchString(item.Field) && errorTokenRE.MatchString(item.Code) {
+			parts = append(parts, item.Field+" "+item.Code)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
 
 // escapePath escapes each segment of a repository path for a URL.
 func escapePath(path string) string {
@@ -375,7 +424,7 @@ func (p *realProvider) Commit(ctx context.Context, repo, branch, message string,
 }
 
 func (p *realProvider) OpenPull(ctx context.Context, repo, head, base, title, body string) (int64, error) {
-	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write"})
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write", "contents": "read"})
 	if err != nil {
 		return 0, err
 	}
@@ -384,7 +433,10 @@ func (p *realProvider) OpenPull(ctx context.Context, repo, head, base, title, bo
 	}
 	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/pulls", token, map[string]string{"title": title, "head": head, "base": base, "body": body}, &pull, http.StatusCreated); err != nil {
 		if r, ok := err.(refusal); ok && r.status == http.StatusUnprocessableEntity {
-			return 0, precondition{"GitHub refused the pull request: one may already be open for this branch, or it has no changes"}
+			if r.detail == "" {
+				r.detail = "GitHub gave no reason"
+			}
+			return 0, precondition{"GitHub refused the pull request: " + r.detail}
 		}
 		return 0, notFound(err, "branch")
 	}
@@ -395,7 +447,7 @@ func (p *realProvider) OpenPull(ctx context.Context, repo, head, base, title, bo
 }
 
 func (p *realProvider) Pull(ctx context.Context, repo string, number int64) (pullInfo, error) {
-	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read"})
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read", "contents": "read"})
 	if err != nil {
 		return pullInfo{}, err
 	}
@@ -423,7 +475,7 @@ func (p *realProvider) Pull(ctx context.Context, repo string, number int64) (pul
 }
 
 func (p *realProvider) Review(ctx context.Context, repo string, number int64, event, body string, _ bool) (int64, error) {
-	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write"})
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write", "contents": "read"})
 	if err != nil {
 		return 0, err
 	}
@@ -444,7 +496,7 @@ func (p *realProvider) Review(ctx context.Context, repo string, number int64, ev
 }
 
 func (p *realProvider) HumanApprovals(ctx context.Context, repo string, number int64, head string) (int64, error) {
-	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read"})
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read", "contents": "read"})
 	if err != nil {
 		return 0, err
 	}

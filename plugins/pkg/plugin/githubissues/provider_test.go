@@ -194,7 +194,7 @@ func TestRealProviderCommitsFastForwardOnly(t *testing.T) {
 }
 
 func TestRealProviderOpensAPullRequest(t *testing.T) {
-	p := fakeGithub(t, `{"permissions":{"pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+	p := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
 		if r.Method != "POST" || r.URL.Path != "/repos/test-owner/test-repo/pulls" || body["head"] != "agent/dev/x" || body["base"] != "main" || body["title"] != "T" {
 			t.Fatalf("wrong pull %s %s %v", r.Method, r.URL, body)
 		}
@@ -207,7 +207,7 @@ func TestRealProviderOpensAPullRequest(t *testing.T) {
 
 func TestRealProviderReadsAndReviewsPullRequests(t *testing.T) {
 	const head = "0123456789abcdef0123456789abcdef01234567"
-	reader := fakeGithub(t, `{"permissions":{"pull_requests":"read"},"repositories":["test-repo"]}`, func(r *http.Request, _ map[string]any) (int, string) {
+	reader := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"read"},"repositories":["test-repo"]}`, func(r *http.Request, _ map[string]any) (int, string) {
 		if r.Method != "GET" || r.URL.Path != "/repos/test-owner/test-repo/pulls/12" {
 			t.Fatalf("wrong read %s %s", r.Method, r.URL)
 		}
@@ -217,7 +217,7 @@ func TestRealProviderReadsAndReviewsPullRequests(t *testing.T) {
 	if err != nil || pr.HeadRef != "agent/dev/x" || !pr.AuthorIsApp || !pr.Open || pr.MergeableState != "clean" {
 		t.Fatalf("%+v %v", pr, err)
 	}
-	reviewer := fakeGithub(t, `{"permissions":{"pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+	reviewer := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
 		if r.Method != "POST" || r.URL.Path != "/repos/test-owner/test-repo/pulls/12/reviews" || body["event"] != "COMMENT" || body["body"] != "hi" {
 			t.Fatalf("wrong review %s %s %v", r.Method, r.URL, body)
 		}
@@ -230,7 +230,7 @@ func TestRealProviderReadsAndReviewsPullRequests(t *testing.T) {
 
 func TestRealProviderCountsPeopleAndMergesTheReviewedHead(t *testing.T) {
 	const head = "0123456789abcdef0123456789abcdef01234567"
-	reader := fakeGithub(t, `{"permissions":{"pull_requests":"read"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) {
+	reader := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"read"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) {
 		return 200, `[
 			{"state":"APPROVED","commit_id":"` + head + `","user":{"login":"alice","type":"User"}},
 			{"state":"APPROVED","commit_id":"` + head + `","user":{"login":"orbitport[bot]","type":"Bot"}},
@@ -268,5 +268,21 @@ func TestRealProviderNamesAMissingAppPermission(t *testing.T) {
 	var pre precondition
 	if !asPrecondition(err, &pre) || !strings.Contains(pre.msg, "contents: read") || strings.Contains(pre.msg, "SECRET") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestRealProviderClassifiesPullRequestRefusals(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"A pull request already exists for 4-Orbit:x."}]}`: "already open",
+		`{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"No commits between main and x"}]}`:                "no commits",
+		`{"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"head","code":"invalid"}]}`:                                          "head invalid",
+		`{"message":"SECRET Validation Failed","errors":[{"field":"Robert'); DROP","code":"SECRET text"}]}`:                                              "no reason",
+	} {
+		p := fakeGithub(t, `{"permissions":{"contents":"read","pull_requests":"write"},"repositories":["test-repo"]}`, func(*http.Request, map[string]any) (int, string) { return 422, body })
+		_, err := p.OpenPull(context.Background(), "test-owner/test-repo", "agent/dev/x", "main", "T", "B")
+		var pre precondition
+		if !asPrecondition(err, &pre) || !strings.Contains(pre.msg, want) || strings.Contains(pre.msg, "SECRET") {
+			t.Fatalf("%s: %v", body, err)
+		}
 	}
 }

@@ -11,11 +11,11 @@ GitHub is a second service enforced the same way as KMS: every `github.*` operat
 | `github.issue.Create` | `github.write` | — | issues: write | developers |
 | `github.issue.Comment` | `github.write` | — | issues: write | developers |
 | `github.contents.Read` | `github.read` | `path` | contents: read | developers, except `secrets/` |
-| `github.pr.Get` | `github.read` | — | pull_requests: read | any agent |
+| `github.pr.Get` | `github.read` | — | pull_requests: read, contents: read | any agent |
 | `github.branch.Create` | `github.code` | `branch`, `isDefaultBranch`, `branchAgent?` | contents: write | developers, own `agent/<id>/` branches |
 | `github.commit.Create` | `github.code` | branch fields + `paths`, `touchesWorkflows` | contents: write | developers, own branches, never `.github/workflows/` |
-| `github.pr.Create` | `github.pr` | `headBranch`, `baseBranch`, `isDefaultBase`, `headAgent?` | pull_requests: write | developers, from own branches |
-| `github.pr.Review` | `github.review` | `event`, `headBranch`, `headAgent?`, `authorIsApp` | pull_requests: write | security comments or requests changes; no agent reviews its own PR |
+| `github.pr.Create` | `github.pr` | `headBranch`, `baseBranch`, `isDefaultBase`, `headAgent?` | pull_requests: write, contents: read | developers, from own branches |
+| `github.pr.Review` | `github.review` | `event`, `headBranch`, `headAgent?`, `authorIsApp` | pull_requests: write, contents: read | security comments or requests changes; no agent reviews its own PR |
 | `github.pr.Merge` | `github.merge` | `headBranch`, `baseBranch`, `isDefaultBase`, `headAgent?`, `humanApprovals`, `mergeableState` | contents + pull_requests: write | deployment, with ≥ 1 human approval and `mergeableState == "clean"`; never its own PR |
 
 **Trusted context** is computed by the plugin from GitHub with read-only lookups (default branch, the pull request, its reviews) before deciding, never taken from the caller's params. A failed lookup is a DENY with no write (`LOOKUP_FAILED`). Simulate and Tests show these fields as inputs, as a what-if. Policies use them like any attribute:
@@ -70,7 +70,7 @@ You need a GitHub App installed on the repository's owner, with only the test re
 | Pull requests | Read and write | opening, reading, reviewing and merging pull requests |
 | Workflows | **none** | so GitHub itself refuses agent edits to `.github/workflows/` |
 
-Each call mints a token with only the permissions in the [Operations](#operations) table; the App must have at least those, or the call fails (a `LOOKUP_FAILED` or `ERROR` status) without writing anything. After changing the App's permissions, accept the new permissions on the installation.
+Pull request operations also ask for `contents: read`: on a private repository, a token without it can't see branches, and GitHub rejects the pull request's head as invalid. Each call mints a token with only the permissions in the [Operations](#operations) table; the App must have at least those, or the call fails (a `LOOKUP_FAILED` or `ERROR` status) without writing anything. **After changing the App's permissions, an owner of the organization it's installed on must accept them** (the org's Settings → Third-party Access → GitHub Apps → Configure → Review request). Until then the installation keeps its old permissions, and the run log reports "GitHub didn't issue a token with …". Each failed step in the run log has a **Details** button explaining it.
 
 Recommended on the repository, as a second layer that doesn't depend on Orbitport: a ruleset on the default branch requiring a pull request with one approval, and a ruleset restricting creation of `agent/**` branches to the App, so `headAgent`/`branchAgent` (read from branch names) can't be spoofed by people.
 

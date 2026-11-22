@@ -1,5 +1,8 @@
-import type { AgentRun } from "../types.ts";
+import { useState } from "react";
+import type { AgentRun, AgentStep } from "../types.ts";
 import { DecisionBadge, PolicyChips } from "./Badges.tsx";
+import { InfoDialog } from "./Confirm.tsx";
+import { needsHelp, stepHelp } from "../agent-step-help.ts";
 
 const stoppedText: Record<AgentRun["stopped"], string> = {
   done: "Gemini finished.",
@@ -11,14 +14,16 @@ const stoppedText: Record<AgentRun["stopped"], string> = {
 };
 
 /** The log of one Gemini agent run: every tool call and what the policy decided. */
-export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "real" | null }) {
+export function AgentRunView({ run, mode, agentId, repository }: { run: AgentRun; mode: "mock" | "real" | null; agentId: string; repository: string }) {
   const denied = run.steps.filter((s) => s.decision === "DENY").length;
+  const failed = run.steps.filter(needsHelp).length;
+  const [open, setOpen] = useState<{ step: AgentStep; n: number } | null>(null);
   return (
     <section className="panel" aria-live="polite" aria-label="Gemini agent run">
       <header className="panel-head">
         <h2>Agent run</h2>
         <span className="muted small">
-          {run.steps.length} tool call{run.steps.length === 1 ? "" : "s"} · {denied} denied · {mode ? mode.toUpperCase() : "mode unknown"}
+          {run.steps.length} tool call{run.steps.length === 1 ? "" : "s"} · {denied} denied · {failed - denied} other problem{failed - denied === 1 ? "" : "s"} · {mode ? mode.toUpperCase() : "mode unknown"}
         </span>
       </header>
       <div className="panel-body stack">
@@ -52,9 +57,16 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
                     <td className="mono">{s.tool}</td>
                     <td>{s.summary}</td>
                     <td>{s.decision ? <DecisionBadge decision={s.decision} /> : <span className="muted">—</span>}</td>
-                    <td className="small">
+                    <td className="small agent-outcome">
                       {s.error ? (
-                        <span className="field-hint">{s.error}</span>
+                        <>
+                          <span className="field-hint">{s.error}</span>
+                          <div>
+                            <button type="button" className="link-button" onClick={() => setOpen({ step: s, n: i + 1 })}>
+                              Details
+                            </button>
+                          </div>
+                        </>
                       ) : (
                         <>
                           {s.status}
@@ -70,6 +82,13 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
                             </>
                           )}
                           {s.reason && <div className="field-hint">{s.reason}</div>}
+                          {needsHelp(s) && (
+                            <div>
+                              <button type="button" className="link-button" onClick={() => setOpen({ step: s, n: i + 1 })}>
+                                Details
+                              </button>
+                            </div>
+                          )}
                         </>
                       )}
                     </td>
@@ -81,6 +100,7 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
             </table>
           </div>
         )}
+        {open && <StepDetails step={open.step} n={open.n} agentId={agentId} repository={repository} onClose={() => setOpen(null)} />}
         {run.final && (
           <div>
             <strong>{run.stopped === "done" || run.stopped === "step_limit" ? "Gemini’s summary" : "Summary"}</strong>
@@ -89,5 +109,52 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
         )}
       </div>
     </section>
+  );
+}
+
+function StepDetails({ step, n, agentId, repository, onClose }: { step: AgentStep; n: number; agentId: string; repository: string; onClose: () => void }) {
+  const help = stepHelp(step, { agentId, repository });
+  return (
+    <InfoDialog title={`Step ${n}: ${help.title}`} onClose={onClose}>
+      <dl className="kv">
+        <dt>Tool</dt>
+        <dd className="mono">
+          {step.tool}
+          {step.method ? ` (${step.method})` : ""}
+        </dd>
+        <dt>Request</dt>
+        <dd>{step.summary}</dd>
+        <dt>Cedar</dt>
+        <dd>
+          {step.decision ? <DecisionBadge decision={step.decision} /> : "not evaluated"} {step.determiningPolicies && <PolicyChips ids={step.determiningPolicies} />}
+        </dd>
+        {step.status && (
+          <>
+            <dt>Outcome</dt>
+            <dd className="mono">{step.status}</dd>
+          </>
+        )}
+        {(step.reason || step.error) && (
+          <>
+            <dt>Reason</dt>
+            <dd>{step.reason ?? step.error}</dd>
+          </>
+        )}
+      </dl>
+      <p>{help.meaning}</p>
+      <strong>What you can do</strong>
+      <ul>
+        {help.fixes.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+      {step.requestId && (
+        <p className="small">
+          <a href={`#/activity/${encodeURIComponent(step.requestId)}`} onClick={onClose}>
+            Open the audit entry
+          </a>
+        </p>
+      )}
+    </InfoDialog>
   );
 }

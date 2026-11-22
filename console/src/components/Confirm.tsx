@@ -115,3 +115,33 @@ export function ConfirmDialog({ title, children, actions, onCancel }: {
     </dialog>
   );
 }
+
+/** A modal that only informs: closed with its button or Escape. */
+export function InfoDialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    return () => d?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="confirm-dialog"
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <h2 id={titleId}>{title}</h2>
+      <div className="confirm-dialog-body">{children}</div>
+      <div className="row confirm-dialog-actions">
+        <button type="button" className="button" autoFocus onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </dialog>
+  );
+}
