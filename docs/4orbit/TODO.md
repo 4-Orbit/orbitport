@@ -16,8 +16,8 @@ Sizes: **S** ≈ ½–1 day, **M** ≈ 2–3 days, **L** ≈ 4–5 days.
 | Policy store | Immutable versions in OpenBao KV v2, test suites, activation gated by tests, rollback, duplicate detection, decision audit ring, paging | `plugins/pkg/plugin/policy` |
 | Console | Activity, Access, Policies (Cedar editor and plain-language rule builder), Simulate, Tests, Versions, Agents, GitHub, Help | `console/` |
 | Console usability | Undo and confirmations; Draft → Saved → Active status strip; glossary and help; **Why was this denied?** with **Grant this…** (PR #13); **Run it for real** (PR #13); paging for versions, activity, keys and the access grid (PR #10); deleting an agent offers to delete its rules; pickers for agents, keys and repositories; rate-limit handling | `console/src` |
-| Save and activate | Activate straight from the Policies page, with the test gate in place | `feat/save-and-activate` |
-| GitHub operations | Issues, comments, file reads, branches, commits, pull requests, reviews and merges on a `Repository` resource, enforced by `plugin-github` with the same engine and audit, with trusted context (D-035). Mock and real (GitHub App) modes; plain-language GitHub rules; a console Gemini agent whose every tool call is decided by Cedar | `plugins/pkg/plugin/githubissues`, [`github.md`](github.md) |
+| Save and activate | Activate straight from the Policies page, after a preview of what changes (KMS decisions, GitHub issue creation, tests), with the test gate in place (PR #19) | `console/src/pages/PoliciesPage.tsx` |
+| GitHub operations | Issues, comments, file reads, branches, commits, pull requests, reviews and merges on a `Repository` resource, enforced by `plugin-github` with the same engine and audit, with trusted context (D-035). Mock and real (GitHub App) modes; plain-language GitHub rules; a console Gemini agent whose every tool call is decided by Cedar, with a preflight (policy and App installation permissions) so denied work costs no Gemini tokens, live progress, Stop, and a progress toast | `plugins/pkg/plugin/githubissues`, [`github.md`](github.md) |
 | Delegated credentials | Process-local, scoped, short-lived credentials for one external action (PRs #1–#4). Not yet wired to an operation route | `gateway/src/agent_delegation.rs`, [`docs/ucsb-capstone-agent-delegation.md`](../ucsb-capstone-agent-delegation.md) |
 | Tooling | `4orbit.compose.yaml`, the seed, `scripts/4orbit/rpc.sh`, `make 4orbit-*`, `make 4orbit-e2e`, console CI, the console browser e2e (`npm run e2e:browser`) | repo root, `scripts/4orbit` |
 
@@ -26,11 +26,6 @@ Sizes: **S** ≈ ½–1 day, **M** ≈ 2–3 days, **L** ≈ 4–5 days.
 ## Remaining, in order
 
 Each phase unblocks the next. Within a phase the order is a suggestion.
-
-### Phase 0: merge what's in flight
-
-- [ ] Merge `feat/save-and-activate` (with `fix/console-pickers`) into `ucsb-capstone`.
-- [ ] Merge `feat/search-and-gemini-mcp`: partial, case-insensitive Activity search with pickers.
 
 ### Phase 1: keep work and prove it (≈ 1 week)
 
@@ -79,6 +74,7 @@ Issues, comments, file reads, branches, commits, pull requests, reviews and merg
 - [ ] **App private key in OpenBao (M).** Store the PEM in the KMS key-store, readable only by `plugin-github`. Later, Transit key import so the key can't be read back out (needs a platform-only import path in the KMS plugin).
 - [ ] **Repository discovery (M).** Fill `github.ListRepositories` from `GET /installation/repositories`, so a repository selected in the App becomes governable with no config change.
 - [ ] **Access grid for repositories (M).** Agents × GitHub actions × repositories on Access, and repositories in Simulate's explanations.
+  *Partly there:* Simulate, Tests and Activity handle repositories and their trusted context; the Access grid is still keys only.
 - [x] **More actions (L).** `github.contents.Read`, `issue.Comment`, `branch.Create`, `commit.Create`, `pr.Create`, `pr.Get`, `pr.Review` and `pr.Merge`, with trusted context (D-035) and a console Gemini agent that uses them. See [`github.md`](github.md#operations).
 - [ ] **`github.issue.List` / `Get` (S).** Read issues, for triage agents.
 - [ ] **Generalize the audit fields (S).** `providerCalled`, `providerOperation` and `providerResult` instead of `kms*`/`github*`, and update the e2e redaction checks.
@@ -98,6 +94,7 @@ Before agents act on their own, operators need to see what a change would break.
 - [ ] **MCP GitHub tools (M).** `github_*` tools in `crates/mcp-core/src/tools.rs` that call the gateway with the agent's own PAT, like the KMS tools.
 - [ ] **Gemini CLI in a sandbox (M).** A container with Gemini CLI, the MCP server and an agent PAT, and **no other path to GitHub**: no `gh` login, no git credentials, no App key, and the built-in shell and web tools off or restricted. Done when Gemini creates and comments on issues, and a denied action shows on Activity with an explanation.
 - [ ] **Runner and Runs page (L).** Start a run (agent, repository, task, time limit), see status and logs, stop it (kill the container, then optionally a policy change). The runner is a separate service, as privileged as the console. Uses the Phase 3 token refresh.
+  *Partly there:* the console's Gemini agent already starts a run, shows each step live, stops at the next safe point, and reattaches after a reload. What's left: a separate runner service and container, a chosen time limit (fixed at 2 minutes today), a Runs page with history, and token refresh for runs longer than the agent token.
 - [ ] **Approvals (M, later).** A `PENDING` result and an approval queue for actions marked as needing a human. Until then, `context.humanApprovals` on `github.pr.Merge` is the approval.
 
 ### Phase 8: polish and scale (≈ 1.5 weeks)
