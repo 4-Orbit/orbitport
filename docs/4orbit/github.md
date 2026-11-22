@@ -31,7 +31,7 @@ To target a stack under another Compose project name, set `COMPOSE_PROJECT_NAME`
 
 You need a GitHub App installed on the repository's owner, with only the test repository selected and **Issues: Read and write**.
 
-1. Copy the App's private key to `.4orbit/github/app.pem` and `chmod 600` it. `.4orbit/` is git-ignored; the Makefile runs the container as your user so it can read the file. Never paste the key into the browser or commit it.
+1. Copy the App's private key to `.4orbit/github/app.pem` and `chmod 600` it. For example, from the repo root: `mkdir -p .4orbit/github && cp /path/to/downloaded-key.pem .4orbit/github/app.pem && chmod 600 .4orbit/github/app.pem`. `.4orbit/` is git-ignored; Compose mounts that fixed path into the GitHub plugin, so you do not set a PEM path in `.4orbit.env`. Never paste the key into the browser or commit it.
 2. In `.4orbit.env` (copy `.4orbit.env.example` if you don't have one):
 
    ```dotenv
@@ -53,9 +53,17 @@ You can type another `owner/repository` to draft a rule, but that doesn't config
 
 On the GitHub page, **Check active policy**, then **Create GitHub issue** creates one real issue and links to it.
 
+### Create an issue with Gemini
+
+To let Gemini write the issue title and description, set `GEMINI_API_KEY` in `.4orbit.env` (copy `.4orbit.env.example` if needed), then run `make 4orbit-up` to recreate the console container. You can optionally set `GEMINI_MODEL`; its default is `gemini-3.5-flash-lite`. The key is passed to the console at runtime and is not included in its image or sent to the browser.
+
+Open <http://127.0.0.1:4317/#/github>, choose an agent and repository, enter a task in **Ask Gemini to create an issue**, check the confirmation box, and submit. Gemini proposes one title and description; the console immediately submits that proposal through the same `github.issue.Create` path as the manual form. In MOCK mode no GitHub issue is created. In LIVE mode an allowed request creates a real issue. The active policy can deny either request. There is no draft review step, so check the chosen repository and task before submitting.
+
+The console accepts at most five Gemini tasks per minute per process. A task can be up to 4,000 characters. Gemini errors show the HTTP status; if a request is interrupted after submission, check Activity and GitHub before retrying. Without `GEMINI_API_KEY`, manual creation still works and the Gemini endpoint reports that it is unconfigured.
+
 ## 4. How a request flows
 
-1. The console's `/api/github/issues` accepts JSON only: a registered agent, the repository, a title and a description. It shares the console's rate limit and Host check.
+1. The console's `/api/github/issues` accepts JSON only: a registered agent, the repository, a title and a description. `/api/github/gemini-issues` accepts a task and explicit confirmation, gets one Gemini proposal, then uses the same issue path. Both endpoints have the console Host check.
 2. The console server gets a short-lived **agent** PAT through `policy.IssueAgentToken`. The operator token is used only to issue it; the agent token stays in server memory.
 3. The gateway verifies the PAT, resolves the tenant, and calls `plugin-github` over internal gRPC with those trusted identity fields.
 4. The plugin refuses unconfigured repositories and foreign tenants, reads the active policy **without** a stale cache, and evaluates it.
