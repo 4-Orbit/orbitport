@@ -480,7 +480,7 @@ func (a *auditLog) add(ev authz.AuditEvent) {
 	k := tenantKey(ev.Tenant)
 	// Enforcing GitHub plugins first record a decision, then an outcome.
 	// Keep one row per request in Activity; the optional JSONL retains both.
-	if ev.Stage == "outcome" && ev.Action == authz.AuditUID("Action", "github.issue.Create") {
+	if ev.Stage == "outcome" && strings.HasPrefix(ev.Action, `Action::"github.`) {
 		for i := len(a.ring[k]) - 1; i >= 0; i-- {
 			previous := a.ring[k][i].ev
 			if previous.RequestID == ev.RequestID && previous.Action == ev.Action && previous.Stage == "decision" && previous.Principal == ev.Principal {

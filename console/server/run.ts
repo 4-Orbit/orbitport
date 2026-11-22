@@ -194,6 +194,24 @@ export class Runner {
     return out.body.result;
   }
 
+  /**
+   * One github.* call as the agent, for the Gemini agent's tools. Only
+   * github.* methods; the agent token never leaves this process.
+   */
+  async githubCall(operatorToken: string, agentId: string, method: string, params: Record<string, unknown>): Promise<{ result?: unknown; error?: string }> {
+    if (!/^github\.[A-Za-z.]+$/.test(method) || method === "github.ListRepositories") return { error: "not a GitHub operation" };
+    const agent = await this.agentToken(operatorToken, agentId);
+    const out = await callGateway(this.deps.gatewayUrl, agent.token, { method, params }, this.deps.fetchImpl);
+    return "error" in out.body ? { error: out.body.error.message } : { result: out.body.result };
+  }
+
+  /** mock or real, from the GitHub service (null if it can't be reached). */
+  async githubMode(operatorToken: string): Promise<"mock" | "real" | null> {
+    const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "github.ListRepositories", params: {} }, this.deps.fetchImpl);
+    const mode = "result" in out.body ? (out.body.result as { mode?: unknown } | null)?.mode : null;
+    return mode === "mock" || mode === "real" ? mode : null;
+  }
+
   private takeRateSlot() {
     const now = this.deps.now();
     this.recent = this.recent.filter((t) => now - t < 60_000);

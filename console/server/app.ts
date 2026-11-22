@@ -3,6 +3,8 @@ import { serveStatic } from "./static.ts";
 import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
 import { parseRunRequest, parseGithubIssueRequest, RunError, Runner } from "./run.ts";
 import { GeminiError, type GeminiIssueClient } from "./gemini.ts";
+import type { GeminiAgent } from "./gemini-agent.ts";
+import { AGENT_ID_RE } from "./run.ts";
 
 /**
  * The console's backend-for-frontend. It holds the operator (account) PAT,
@@ -24,6 +26,8 @@ export interface AppOptions {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   gemini?: GeminiIssueClient;
+  /** The Gemini agent for multi-step GitHub tasks (needs GEMINI_API_KEY). */
+  geminiAgent?: GeminiAgent;
 }
 
 /** Methods the browser may call. Everything else is refused here. */
@@ -158,6 +162,33 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     if (typeof issue === "string") return sendJson(res, 502, { error: "Gemini proposed an invalid issue" });
     try { return sendJson(res, 200, { result: await runner.createGithubIssue(token, issue), proposal }); }
     catch (error) {
+      if (error instanceof RunError) return sendJson(res, error.status, { error: error.message });
+      throw error;
+    }
+  }
+
+  // A multi-step Gemini task: Gemini calls GitHub tools, each one a github.*
+  // request made with the agent's own token and decided by the active policy.
+  if (pathname === "/api/github/gemini-agent") {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "method not allowed" });
+    if (!/^application\/json\b/.test(req.headers["content-type"] ?? "")) return sendJson(res, 415, { error: "expected application/json" });
+    if (!opts.geminiAgent) return sendJson(res, 503, { error: "Gemini is not configured: set GEMINI_API_KEY for the console" });
+    const input = await readJsonBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { error: "expected a Gemini agent request" });
+    const { agentId, repository, task, confirm, ...rest } = input as Record<string, unknown>;
+    if (Object.keys(rest).length || confirm !== true || typeof task !== "string" || !task.trim() || task.length > 4_000) {
+      return sendJson(res, 400, { error: "choose an agent and repository, enter a task (up to 4000 characters), and confirm the run" });
+    }
+    if (typeof agentId !== "string" || !AGENT_ID_RE.test(agentId)) return sendJson(res, 400, { error: "choose a registered agent" });
+    if (typeof repository !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(repository)) return sendJson(res, 400, { error: "choose a repository" });
+    const token = readToken(opts.tokenFile);
+    if (!token) return sendJson(res, 503, { error: "operator token missing: run make 4orbit-seed" });
+    if (!reserveGeminiTask()) return sendJson(res, 429, { error: "at most 5 Gemini tasks per minute; try again shortly" });
+    const mode = await runner.githubMode(token);
+    try {
+      const run = await opts.geminiAgent.run({ task, scope: { agentId, repository }, mode }, (method, params) => runner.githubCall(token, agentId, method, params));
+      return sendJson(res, 200, { run, mode });
+    } catch (error) {
       if (error instanceof RunError) return sendJson(res, error.status, { error: error.message });
       throw error;
     }

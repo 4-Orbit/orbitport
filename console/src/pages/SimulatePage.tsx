@@ -10,6 +10,8 @@ import { SourcePicker, TimeTravel, toEpoch, toSource, type SourceChoice } from "
 import { EntityPicker } from "../components/EntityPicker.tsx";
 import { actionGroups, defaultResource, resourceField, resourceForAction, resourceProblem, resourceTypeOf } from "../resource-fields.ts";
 import { useKeys, useRepositories, useSchema, useSourceAgents, useVersions } from "./shared.ts";
+import { ContextFields } from "../components/ContextFields.tsx";
+import { contextForRequest, contextProblem, defaultContext, type ContextValues } from "../context-fields.ts";
 
 interface HistoryItem {
   result: SimResult;
@@ -30,6 +32,7 @@ export function SimulatePage() {
   const [action, setAction] = useState("kms.Encrypt");
   const [resourceId, setResourceId] = useState("dev-key");
   const [tags, setTags] = useState("");
+  const [contextValues, setContextValues] = useState<ContextValues>({});
   const [last, setLast] = useState<SimulateResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export function SimulatePage() {
     setAction(p.action);
     setResourceId(p.resource.id);
     setTags("");
+    setContextValues(p.context ?? {});
     draft.setPendingSim(null);
   }, [draft.pendingSim]);
 
@@ -51,7 +55,8 @@ export function SimulatePage() {
   const agents = useSourceAgents(choice, draft);
   const keyAliases = useMemo(() => (keys.data ?? []).map((k) => k.alias), [keys.data]);
   const groups = useMemo(() => actionGroups(schema?.actions ?? []), [schema]);
-  const problem = resourceProblem(resourceType, resourceId);
+  const contextFields = schema?.actions.find((a) => a.name === action)?.context ?? [];
+  const problem = resourceProblem(resourceType, resourceId) ?? contextProblem(contextFields, contextValues);
 
   // An empty resource is filled once its list arrives (the first visit, or a
   // switch to GitHub before the repositories loaded).
@@ -65,6 +70,7 @@ export function SimulatePage() {
   const changeAction = (next: string) => {
     setResourceId(resourceForAction(resourceType, resourceTypeOf(next, schema?.actions), resourceId, { keys: keyAliases, repositories: repositories.data ?? [] }));
     setTags("");
+    setContextValues(defaultContext(schema?.actions.find((a) => a.name === next)?.context));
     setAction(next);
   };
 
@@ -87,6 +93,7 @@ export function SimulatePage() {
             agentId: agentId || undefined,
             action,
             resource: { type: resourceType, id: resourceId, tags: effectiveTags(), ...(key && resourceType === "Key" && { attrs: { scheme: key.scheme, keySpec: key.keySpec, keyUsage: key.keyUsage } }) },
+            context: contextForRequest(contextFields, contextValues),
           },
         ],
         toSource(choice, draft),
@@ -110,6 +117,7 @@ export function SimulatePage() {
         agentId: res.request.agentId,
         action: res.request.action,
         resource: { type: res.request.resource.type, id: res.request.resource.id, ...(res.request.resource.tags && { tags: res.request.resource.tags }) },
+        ...(res.request.context && { context: res.request.context }),
         ...(last.simulatedTime && { at: last.at }),
         expect: res.decision,
       };
@@ -203,6 +211,7 @@ export function SimulatePage() {
               <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder={tagHint(keys.data?.find((k) => k.alias === resourceId)?.tags)} />
             </label>
           )}
+          <ContextFields fields={contextFields} values={contextValues} onChange={setContextValues} agents={agents.data ?? []} />
           <SourcePicker value={choice} onChange={setChoice} versions={versions} />
           <TimeTravel value={when} onChange={setWhen} />
           <div className="row">

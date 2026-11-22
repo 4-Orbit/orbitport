@@ -78,6 +78,9 @@ export const api = {
     (await consoleCall<{ result: T.GithubIssueResult }>("/api/github/issues", { agentId, repository, title, body })).result,
   createGeminiGithubIssue: (agentId: string, repository: string, prompt: string, confirmCreate: boolean) =>
     consoleCall<{ result: T.GithubIssueResult; proposal: { title: string; body: string } }>("/api/github/gemini-issues", { agentId, repository, prompt, confirmCreate }),
+  /** A multi-step Gemini task; every tool call is decided by the active policy. */
+  runGeminiAgent: (agentId: string, repository: string, task: string, confirm: boolean) =>
+    consoleCall<{ run: T.AgentRun; mode: "mock" | "real" | null }>("/api/github/gemini-agent", { agentId, repository, task, confirm }),
   /** Run it for real: one KMS request as the agent, decided by enforcement. */
   runForReal: async (agentId: string, action: string, keyId: string) => (await consoleCall<{ result: T.RunResult }>("/api/run", { agentId, action, keyId })).result,
   /** Token hashes of this console's runs (for Activity labels). */

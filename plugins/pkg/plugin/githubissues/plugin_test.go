@@ -153,3 +153,60 @@ func TestStrictParamsAndManagement(t *testing.T) {
 		t.Fatal("agent read management metadata")
 	}
 }
+
+func TestLookupFailsClosedAndRunsOnlyWhenItCan(t *testing.T) {
+	newOp := func(lookups *int, lookupErr error, ran *int) operation {
+		return operation{action: CreateAction, repository: "test-owner/test-repo",
+			lookup: func(context.Context) (map[string]any, error) { *lookups++; return nil, lookupErr },
+			run:    func(context.Context, string) (outcome, error) { *ran++; return outcome{}, nil }}
+	}
+	call := request("developer-agent", "tenant-a", "test-owner/test-repo")
+
+	// A failed lookup is an audited DENY with no write.
+	p, policy, _ := setup()
+	lookups, ran := 0, 0
+	out, err := p.enforce(context.Background(), call, newOp(&lookups, errors.New("GitHub down SECRET"), &ran))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result Result
+	_ = json.Unmarshal([]byte(out.ResultJson), &result)
+	if result.Decision != authz.Deny || result.Status != "LOOKUP_FAILED" || ran != 0 || len(policy.events) != 1 || policy.events[0].GithubResult.Status != "LOOKUP_FAILED" {
+		t.Fatalf("lookup failure: %+v events %d ran %d", result, len(policy.events), ran)
+	}
+	if strings.Contains(out.ResultJson, "SECRET") {
+		t.Fatal("lookup error text reached the caller")
+	}
+
+	// A stated precondition is refused before any decision.
+	p, policy, _ = setup()
+	lookups, ran = 0, 0
+	if _, err := p.enforce(context.Background(), call, newOp(&lookups, precondition{"the branch moved"}, &ran)); err == nil || ran != 0 || len(policy.events) != 0 {
+		t.Fatal("precondition not refused before deciding")
+	}
+
+	// No lookup for an unconfigured repository, or while the policy is offline.
+	p, _, _ = setup()
+	lookups, ran = 0, 0
+	other := newOp(&lookups, nil, &ran)
+	other.repository = "other-owner/other-repo"
+	if _, err := p.enforce(context.Background(), call, other); err != nil || lookups != 0 {
+		t.Fatalf("looked up an unconfigured repository: %v %d", err, lookups)
+	}
+	p, policy, _ = setup()
+	policy.unavailable = true
+	if _, err := p.enforce(context.Background(), call, newOp(&lookups, nil, &ran)); err == nil || lookups != 0 {
+		t.Fatal("looked up while the policy was offline")
+	}
+
+	// Context for an action that declares none is an errored DENY.
+	p, _, _ = setup()
+	lookups, ran = 0, 0
+	op := newOp(&lookups, nil, &ran)
+	op.lookup = func(context.Context) (map[string]any, error) { return map[string]any{"smuggled": true}, nil }
+	out, _ = p.enforce(context.Background(), call, op)
+	_ = json.Unmarshal([]byte(out.ResultJson), &result)
+	if result.Decision != authz.Deny || ran != 0 {
+		t.Fatal("undeclared context was accepted")
+	}
+}

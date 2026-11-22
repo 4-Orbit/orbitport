@@ -45,32 +45,42 @@ func newRealProvider() (*realProvider, error) {
 		client: &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
-func (p *realProvider) Create(ctx context.Context, repo, title, body string) (int64, error) {
+// token mints an installation token narrowed to one repository and exactly
+// the given permissions. It is used for one operation and thrown away.
+func (p *realProvider) token(ctx context.Context, repo string, perms map[string]string) (string, error) {
 	if !repoRE.MatchString(repo) {
-		return 0, fmt.Errorf("invalid repository")
+		return "", fmt.Errorf("invalid repository")
 	}
 	now := p.now()
 	appToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.RegisteredClaims{
 		Issuer: p.appID, IssuedAt: jwt.NewNumericDate(now.Add(-60 * time.Second)), ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
 	}).SignedString(p.key)
 	if err != nil {
-		return 0, fmt.Errorf("app signing failed")
+		return "", fmt.Errorf("app signing failed")
 	}
 	name := repo[len(ownerOf(repo))+1:]
 	var issued struct {
 		Token string `json:"token"`
 	}
-	if err := p.post(ctx, "/app/installations/"+p.installationID+"/access_tokens", appToken,
-		map[string]any{"repositories": []string{name}, "permissions": map[string]string{"issues": "write"}}, &issued); err != nil {
-		return 0, err
+	if err := p.request(ctx, http.MethodPost, "/app/installations/"+p.installationID+"/access_tokens", appToken,
+		map[string]any{"repositories": []string{name}, "permissions": perms}, &issued, http.StatusCreated); err != nil {
+		return "", err
 	}
 	if issued.Token == "" {
-		return 0, fmt.Errorf("installation token unavailable")
+		return "", fmt.Errorf("installation token unavailable")
+	}
+	return issued.Token, nil
+}
+
+func (p *realProvider) Create(ctx context.Context, repo, title, body string) (int64, error) {
+	token, err := p.token(ctx, repo, map[string]string{"issues": "write"})
+	if err != nil {
+		return 0, err
 	}
 	var issue struct {
 		Number int64 `json:"number"`
 	}
-	if err := p.post(ctx, "/repos/"+repo+"/issues", issued.Token, map[string]string{"title": title, "body": body}, &issue); err != nil {
+	if err := p.request(ctx, http.MethodPost, "/repos/"+repo+"/issues", token, map[string]string{"title": title, "body": body}, &issue, http.StatusCreated); err != nil {
 		return 0, err
 	}
 	if issue.Number <= 0 {
@@ -88,15 +98,24 @@ func ownerOf(repo string) string {
 	return ""
 }
 
-func (p *realProvider) post(ctx context.Context, path, token string, body, into any) error {
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.github.com"+path, bytes.NewReader(raw))
+// request makes one call to api.github.com. body nil sends no body; into nil
+// discards the response. Only the listed statuses count as success; anything
+// else is a refusal whose text is never passed on (it is untrusted).
+func (p *realProvider) request(ctx context.Context, method, path, token string, body, into any, ok ...int) error {
+	var reader io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "https://api.github.com"+path, reader)
 	if err != nil {
 		return fmt.Errorf("GitHub request failed")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("User-Agent", "orbitport-github-issues")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	// No redirects, no automatic retries, fixed host and validated repo path.
@@ -105,11 +124,23 @@ func (p *realProvider) post(ctx context.Context, path, token string, body, into 
 		return fmt.Errorf("GitHub request failed; outcome may be unknown")
 	}
 	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != http.StatusCreated {
-		return fmt.Errorf("GitHub request refused")
+	accepted := false
+	for _, code := range ok {
+		accepted = accepted || res.StatusCode == code
 	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 1024*1024)).Decode(into); err != nil {
+	if !accepted {
+		return refusal{status: res.StatusCode}
+	}
+	if into == nil {
+		return nil
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4*1024*1024)).Decode(into); err != nil {
 		return fmt.Errorf("invalid GitHub response")
 	}
 	return nil
 }
+
+// refusal is a non-success GitHub status, without GitHub's message.
+type refusal struct{ status int }
+
+func (r refusal) Error() string { return fmt.Sprintf("GitHub request refused (HTTP %d)", r.status) }

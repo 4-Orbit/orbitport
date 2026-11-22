@@ -154,6 +154,7 @@ There's one event per decision: from the KMS plugin for every KMS RPC, from `plu
 | D-032 | The existing key-store Cedar authorizer (`ORBITPORT_KMS_KEY_STORE_CEDAR_POLICY_PATH`) stays as a second, operator-level layer after the agent check, so its behavior and tests are unchanged. | — |
 | D-033 | Local images build on public `gcr.io/distroless/*-debian13:nonroot` runtimes through a `RUNTIME_IMAGE` build argument. Upstream defaults still point at `dhi.io`. | — |
 | D-034 | GitHub is a second enforced service in its own `plugin-github`, using the same engine, policy versions and audit. It reads the active policy without a stale cache, audits before any GitHub call, and fails closed if audit is down. | — |
+| D-035 | Trusted context beyond `currentTime`. A GitHub action may declare context fields (branch, paths, PR author, approvals); the enforcing plugin computes them with read-only GitHub lookups before deciding, never from the caller's params. A missing, unknown or mistyped field denies without evaluation. Simulate and tests supply them as a what-if. Supersedes "currentTime is the only context". | — |
 
 ---
 

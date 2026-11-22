@@ -39,8 +39,10 @@ type TestCase struct {
 	AgentID  string   `json:"agentId,omitempty"`
 	Action   string   `json:"action"`
 	Resource Resource `json:"resource"`
-	At       int64    `json:"at,omitempty"`
-	Expect   Decision `json:"expect"`
+	// The action's trusted context, for actions that declare one.
+	Context map[string]any `json:"context,omitempty"`
+	At      int64          `json:"at,omitempty"`
+	Expect  Decision       `json:"expect"`
 }
 
 // TestResult is the outcome of one TestCase.
@@ -67,6 +69,7 @@ func RunTests(c *Compiled, tenant string, cases []TestCase, now time.Time) []Tes
 			Principal: Principal{Tenant: tenant, AgentID: tc.AgentID},
 			Action:    tc.Action,
 			Resource:  tc.Resource,
+			Context:   tc.Context,
 		}, at)
 		out = append(out, TestResult{
 			Name:                tc.Name,

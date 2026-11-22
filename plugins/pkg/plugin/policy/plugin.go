@@ -318,13 +318,15 @@ type actionInfo struct {
 	Name         string `json:"name"`
 	Group        string `json:"group"`
 	ResourceType string `json:"resourceType"`
+	// Trusted context fields beyond currentTime (D-035), for Simulate and Tests.
+	Context []authz.ContextField `json:"context,omitempty"`
 }
 
 func (p *Plugin) getSchema(context.Context, *call) (any, error) {
 	actions := []actionInfo{}
 	for _, a := range authz.Actions() {
 		g, _ := authz.ActionGroup(a)
-		actions = append(actions, actionInfo{Name: a, Group: g, ResourceType: authz.ResourceTypeFor(a)})
+		actions = append(actions, actionInfo{Name: a, Group: g, ResourceType: authz.ResourceTypeFor(a), Context: authz.ContextFields(a)})
 	}
 	return map[string]any{
 		"schema":            authz.SchemaText(),
@@ -460,6 +462,8 @@ type simRequest struct {
 	AgentID  string         `json:"agentId,omitempty"`
 	Action   string         `json:"action"`
 	Resource authz.Resource `json:"resource"`
+	// A what-if value for the action's trusted context (D-035).
+	Context map[string]any `json:"context,omitempty"`
 }
 
 // maxSimulateExplanations bounds the explanations one Simulate call computes;
@@ -493,6 +497,7 @@ func (p *Plugin) simulate(ctx context.Context, c *call) (any, error) {
 			Principal: authz.Principal{Tenant: c.principal.Tenant, AgentID: sr.AgentID},
 			Action:    sr.Action,
 			Resource:  sr.Resource,
+			Context:   sr.Context,
 		}
 		res := authz.Evaluate(r.compiled, req, at)
 		item := map[string]any{"request": sr, "decision": res.Decision, "determiningPolicies": res.DeterminingPolicies, "errored": res.Errored}
@@ -527,6 +532,7 @@ func (p *Plugin) explain(ctx context.Context, c *call) (any, error) {
 		AgentID  string         `json:"agentId,omitempty"`
 		Action   string         `json:"action"`
 		Resource authz.Resource `json:"resource"`
+		Context  map[string]any `json:"context,omitempty"`
 		At       int64          `json:"at,omitempty"`
 	}
 	if err := c.decode(&params); err != nil {
@@ -542,6 +548,7 @@ func (p *Plugin) explain(ctx context.Context, c *call) (any, error) {
 		Principal: authz.Principal{Tenant: c.principal.Tenant, AgentID: params.AgentID},
 		Action:    params.Action,
 		Resource:  params.Resource,
+		Context:   params.Context,
 	}, at)
 	return map[string]any{"source": r.label, "version": r.version, "at": at.Unix(), "simulatedTime": simulated, "explanation": e}, nil
 }

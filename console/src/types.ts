@@ -40,10 +40,20 @@ export interface ActiveResult {
   activation?: { version: number; activatedAt: string; activatedBy: string };
 }
 
+/** A trusted-context field an action declares (D-035). */
+export interface ContextField {
+  name: string;
+  type: "String" | "Bool" | "Long" | "Set<String>" | "Agent";
+  optional?: boolean;
+  /** Where enforcement takes the value from. */
+  doc: string;
+}
+
 export interface ActionInfo {
   name: string;
   group: string;
   resourceType: string;
+  context?: ContextField[];
 }
 
 export interface SchemaInfo {
@@ -67,6 +77,8 @@ export interface SimRequest {
   agentId?: string;
   action: string;
   resource: Resource;
+  /** What-if trusted context, for actions that declare it. */
+  context?: Record<string, string | boolean | number | string[]>;
 }
 
 export interface SimResult {
@@ -220,6 +232,7 @@ export interface TestCase {
   name: string;
   agentId?: string;
   action: string;
+  context?: Record<string, string | boolean | number | string[]>;
   resource: Resource;
   at?: number;
   expect: Decision;
@@ -252,7 +265,9 @@ export interface ActivateResult {
 export interface AuditEvent {
   githubCalled?: boolean;
   githubMode?: "mock" | "real";
-  githubResult?: { status: string; issueNumber?: number };
+  githubResult?: { status: string; issueNumber?: number; number?: number; sha?: string; ref?: string };
+  /** The trusted context the decision used (GitHub actions, D-035). */
+  context?: Record<string, string | boolean | number | string[]>;
   stage?: "decision" | "outcome";
   ts: string;
   requestId: string;
@@ -323,6 +338,29 @@ export interface IssuedToken {
   roles: string[];
   token: string;
   expiresAt: number;
+}
+
+/** One tool call of a Gemini agent run (console/server/gemini-agent.ts). */
+export interface AgentStep {
+  tool: string;
+  method?: string;
+  summary: string;
+  decision?: Decision;
+  status?: string;
+  determiningPolicies?: string[];
+  requestId?: string;
+  number?: number;
+  sha?: string;
+  ref?: string;
+  url?: string;
+  error?: string;
+}
+
+export interface AgentRun {
+  steps: AgentStep[];
+  final: string | null;
+  stopped: "done" | "step_limit" | "time_limit" | "gemini_error";
+  error?: string;
 }
 
 export interface GithubIssueResult {

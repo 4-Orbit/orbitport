@@ -30,12 +30,22 @@ type AuditEvent struct {
 	GithubMode          string        `json:"githubMode,omitempty"`
 	GithubResult        *GithubResult `json:"githubResult,omitempty"`
 	Stage               string        `json:"stage,omitempty"`
+	// The trusted context the decision used (D-035): branch names, file
+	// paths, counts and flags computed by the enforcing plugin, never file
+	// contents or text. Kept so Activity can explain the exact decision.
+	Context map[string]any `json:"context,omitempty"`
 }
 
-// GithubResult contains stable metadata only, never issue text or provider errors.
+// GithubResult contains stable metadata only, never issue text, file
+// contents or provider errors.
 type GithubResult struct {
 	Status      string `json:"status"`
 	IssueNumber int64  `json:"issueNumber,omitempty"`
+	// Number is the issue, comment, review or pull request number.
+	Number int64 `json:"number,omitempty"`
+	// SHA is a commit or merge commit id; Ref a branch name.
+	SHA string `json:"sha,omitempty"`
+	Ref string `json:"ref,omitempty"`
 }
 
 // KmsResult records whether the backend call succeeded, with a stable error
