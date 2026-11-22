@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spacecomputer-io/orbitport/plugins/pkg/core/authz"
+	proto "github.com/spacecomputer-io/orbitport/plugins/proto/plugins"
 )
 
 const repo = "test-owner/test-repo"
@@ -482,5 +483,53 @@ func TestPullGetWithoutANumberListsOpenPullRequests(t *testing.T) {
 	n, _ := m.OpenPull(ctx, repo, "agent/a/x", "main", "t", "b")
 	if got, _ := m.OpenPulls(ctx, repo); len(got) != 1 || got[0].Number != n {
 		t.Fatalf("mock list %v", got)
+	}
+}
+
+func TestInstallationPermissionsForTheAccountOnly(t *testing.T) {
+	p, _, provider := setup()
+	now := time.Unix(1_700_000_000, 0)
+	p.now = func() time.Time { return now }
+	get := func(agent string) (map[string]any, error) {
+		out, err := p.Call(context.Background(), &proto.GithubCallRequest{Method: "github.GetInstallation", KmsTenant: "tenant-a", AgentId: agent, ParamsJson: `{}`})
+		if err != nil {
+			return nil, err
+		}
+		var r map[string]any
+		_ = json.Unmarshal([]byte(out.ResultJson), &r)
+		return r, nil
+	}
+	if _, err := get("developer-agent"); err == nil {
+		t.Fatal("an agent read installation metadata")
+	}
+	r, err := get("")
+	if err != nil || r["permissions"].(map[string]any)["issues"] != "write" || r["required"].(map[string]any)["github.pr.Merge"] == nil {
+		t.Fatalf("%v %v", r, err)
+	}
+	// Cached for grantedTTL, then read again.
+	_, _ = get("")
+	if provider.installs != 1 {
+		t.Fatalf("installation read %d times", provider.installs)
+	}
+	now = now.Add(grantedTTL + time.Second)
+	_, _ = get("")
+	if provider.installs != 2 {
+		t.Fatal("cache never expired")
+	}
+}
+
+func TestEveryOperationDeclaresItsPermissions(t *testing.T) {
+	for method := range handlers {
+		if len(operationPermissions[method]) == 0 {
+			t.Errorf("%s: no declared permissions", method)
+		}
+	}
+	granted, _ := newMockRepo().Installation(context.Background())
+	for method, perms := range operationPermissions {
+		for k, v := range perms {
+			if granted[k] == "" || (v == "write" && granted[k] != "write") {
+				t.Errorf("mock mode doesn't grant %s %s for %s", k, v, method)
+			}
+		}
 	}
 }

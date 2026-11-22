@@ -297,3 +297,16 @@ func (m *mockRepo) OpenPulls(context.Context, string) ([]pullSummary, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Number > out[j].Number })
 	return out, nil
 }
+
+// Installation: mock mode grants every permission an operation needs.
+func (m *mockRepo) Installation(context.Context) (map[string]string, error) {
+	out := map[string]string{}
+	for _, perms := range operationPermissions {
+		for k, v := range perms {
+			if out[k] != "write" {
+				out[k] = v
+			}
+		}
+	}
+	return out, nil
+}

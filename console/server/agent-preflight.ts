@@ -46,3 +46,29 @@ export function allowedMethods(requests: { method: string }[], results: unknown)
   });
   return out;
 }
+
+const level = (v: string | undefined) => (v === "admin" ? 3 : v === "write" ? 2 : v === "read" ? 1 : 0);
+
+/**
+ * Which methods the GitHub App installation can serve, from its granted
+ * permissions and what each method needs. missing lists, per method that
+ * can't run, the permissions it lacks ("contents: write").
+ */
+export function appAllowedMethods(methods: string[], required: Record<string, Record<string, string>>, granted: Record<string, string>): { allowed: Set<string>; missing: Record<string, string[]> } {
+  const allowed = new Set<string>();
+  const missing: Record<string, string[]> = {};
+  for (const method of new Set(methods)) {
+    const need = required[method];
+    if (!need) {
+      allowed.add(method);
+      continue;
+    }
+    const lacks = Object.entries(need)
+      .filter(([k, v]) => level(granted[k]) < level(v))
+      .map(([k, v]) => `${k}: ${v}`)
+      .sort();
+    if (lacks.length) missing[method] = lacks;
+    else allowed.add(method);
+  }
+  return { allowed, missing };
+}

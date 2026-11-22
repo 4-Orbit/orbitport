@@ -362,8 +362,9 @@ export interface AgentRun {
   final: string | null;
   stopped: "done" | "step_limit" | "time_limit" | "gemini_error" | "nothing_allowed" | "denied";
   error?: string;
-  /** The tools Gemini was offered (only those the active policy could allow). */
+  /** The tools Gemini was offered (only those the active policy and the App installation could allow). */
   tools: string[];
+  skipped?: { method: string; why: "policy" | "app"; missing?: string[] }[];
 }
 
 export interface GithubIssueResult {

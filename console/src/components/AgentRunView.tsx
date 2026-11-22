@@ -9,7 +9,7 @@ const stoppedText: Record<AgentRun["stopped"], string> = {
   step_limit: "Stopped at the tool-call limit.",
   time_limit: "Stopped at the time limit.",
   gemini_error: "Stopped: Gemini failed.",
-  nothing_allowed: "Not started: the active policy allows none of the GitHub tools for this agent and repository. Gemini wasn't called.",
+  nothing_allowed: "Not started: the active policy and the GitHub App installation allow none of the GitHub tools for this agent and repository. Gemini wasn't called.",
   denied: "Stopped after repeated denials, without another Gemini call.",
 };
 
@@ -33,7 +33,17 @@ export function AgentRunView({ run, mode, agentId, repository }: { run: AgentRun
         </p>
         {run.stopped !== "nothing_allowed" && (
           <p className="muted small">
-            Tools offered to Gemini (the ones the active policy could allow): <span className="mono">{run.tools.join(", ") || "none"}</span>
+            Tools offered to Gemini (the ones the active policy and the App installation could allow): <span className="mono">{run.tools.join(", ") || "none"}</span>
+          </p>
+        )}
+        {run.skipped?.some((s) => s.why === "app") && (
+          <p className="builder-warning">
+            Left out because the GitHub App installation lacks permissions:{" "}
+            {run.skipped
+              .filter((s) => s.why === "app")
+              .map((s) => `${s.method} (needs ${s.missing?.join(", ")})`)
+              .join("; ")}
+            . Give the App those permissions and accept them on the installation (the org's Settings → Third-party Access → GitHub Apps → Configure).
           </p>
         )}
         {run.steps.length > 0 && (

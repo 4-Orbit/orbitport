@@ -46,6 +46,8 @@ export interface AgentRun {
   error?: string;
   /** The tools Gemini was offered. */
   tools: string[];
+  /** Methods left out before the run: denied by the policy, or beyond the App installation's permissions. */
+  skipped?: { method: string; why: "policy" | "app"; missing?: string[] }[];
 }
 
 /** Calls one github.* method as the run's agent. */

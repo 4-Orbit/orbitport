@@ -52,16 +52,47 @@ func newRealProvider() (*realProvider, error) {
 
 // token mints an installation token narrowed to one repository and exactly
 // the given permissions. It is used for one operation and thrown away.
-func (p *realProvider) token(ctx context.Context, repo string, perms map[string]string) (string, error) {
-	if !repoRE.MatchString(repo) {
-		return "", fmt.Errorf("invalid repository")
-	}
+// appJWT signs a short-lived JWT as the App itself.
+func (p *realProvider) appJWT() (string, error) {
 	now := p.now()
-	appToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.RegisteredClaims{
+	t, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.RegisteredClaims{
 		Issuer: p.appID, IssuedAt: jwt.NewNumericDate(now.Add(-60 * time.Second)), ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
 	}).SignedString(p.key)
 	if err != nil {
 		return "", fmt.Errorf("app signing failed")
+	}
+	return t, nil
+}
+
+// Installation reads the installation's granted permissions. It uses the
+// App JWT and mints no installation token.
+func (p *realProvider) Installation(ctx context.Context) (map[string]string, error) {
+	appToken, err := p.appJWT()
+	if err != nil {
+		return nil, err
+	}
+	var inst struct {
+		Permissions map[string]string `json:"permissions"`
+	}
+	if err := p.request(ctx, http.MethodGet, "/app/installations/"+p.installationID, appToken, nil, &inst, http.StatusOK); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for k, v := range inst.Permissions {
+		if errorTokenRE.MatchString(k) && (v == "read" || v == "write" || v == "admin") {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+func (p *realProvider) token(ctx context.Context, repo string, perms map[string]string) (string, error) {
+	if !repoRE.MatchString(repo) {
+		return "", fmt.Errorf("invalid repository")
+	}
+	appToken, err := p.appJWT()
+	if err != nil {
+		return "", err
 	}
 	name := repo[len(ownerOf(repo))+1:]
 	var issued struct {

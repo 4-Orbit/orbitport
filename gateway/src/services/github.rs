@@ -6,6 +6,7 @@ use serde_json::value::RawValue;
 
 pub const GITHUB_METHODS: &[&str] = &[
     "github.ListRepositories",
+    "github.GetInstallation",
     "github.issue.Create",
     "github.contents.Read",
     "github.issue.Comment",
@@ -77,6 +78,7 @@ mod tests {
                 .is_ok()
         );
         assert!(GithubCall::parse("github.ListRepositories", "{}").is_ok());
+        assert!(GithubCall::parse("github.GetInstallation", "{}").is_ok());
         assert!(GithubCall::parse("github.contents.Read", "{}").is_ok());
         assert!(GithubCall::parse("github.issue.Comment", "{}").is_ok());
         assert!(GithubCall::parse("github.branch.Create", "{}").is_ok());

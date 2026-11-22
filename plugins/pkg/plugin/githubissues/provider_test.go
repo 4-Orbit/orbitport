@@ -299,3 +299,18 @@ func TestRealProviderListsOpenPullRequests(t *testing.T) {
 		t.Fatalf("%v %v", list, err)
 	}
 }
+
+func TestRealProviderReadsInstallationPermissionsWithoutAToken(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	p := &realProvider{appID: "123", installationID: "456", key: key, now: time.Now}
+	p.client = &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "GET" || r.URL.Host != "api.github.com" || r.URL.Path != "/app/installations/456" {
+			t.Fatalf("wrong call %s %s", r.Method, r.URL)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"permissions":{"issues":"write","metadata":"read","Weird Key":"write","contents":"SECRET"}}`)), Header: make(http.Header)}, nil
+	})}
+	got, err := p.Installation(context.Background())
+	if err != nil || len(got) != 2 || got["issues"] != "write" || got["metadata"] != "read" {
+		t.Fatalf("%v %v", got, err)
+	}
+}

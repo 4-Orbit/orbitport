@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -64,6 +65,9 @@ type provider interface {
 	Pull(ctx context.Context, repo string, number int64) (pullInfo, error)
 	// OpenPulls lists open pull requests, newest first (at most maxListedPulls).
 	OpenPulls(ctx context.Context, repo string) ([]pullSummary, error)
+	// Installation reads the permissions the App installation grants
+	// (a read-only call, not tied to any operation).
+	Installation(ctx context.Context) (map[string]string, error)
 	// Review submits a review. human is true only for the account principal
 	// in mock mode, which stands in for a person reviewing on GitHub.
 	Review(ctx context.Context, repo string, number int64, event, body string, human bool) (int64, error)
@@ -128,6 +132,30 @@ type Plugin struct {
 	tenant     string
 	mode       string
 	now        func() time.Time
+
+	// The installation's granted permissions, cached briefly so the
+	// console's per-run check costs at most one GitHub call per interval.
+	grantedMu sync.Mutex
+	granted   map[string]string
+	grantedAt time.Time
+}
+
+// grantedTTL bounds how stale the cached installation permissions can be.
+const grantedTTL = 30 * time.Second
+
+// operationPermissions is what each operation's tokens request in total
+// (its lookups and its write). The console compares it with the
+// installation's grants before a Gemini run.
+var operationPermissions = map[string]map[string]string{
+	CreateAction:           {"issues": "write"},
+	"github.issue.Comment": {"issues": "write"},
+	"github.contents.Read": {"contents": "read"},
+	"github.branch.Create": {"metadata": "read", "contents": "write"},
+	"github.commit.Create": {"metadata": "read", "contents": "write"},
+	"github.pr.Create":     {"metadata": "read", "contents": "read", "pull_requests": "write"},
+	"github.pr.Get":        {"contents": "read", "pull_requests": "read"},
+	"github.pr.Review":     {"contents": "read", "pull_requests": "write"},
+	"github.pr.Merge":      {"metadata": "read", "contents": "write", "pull_requests": "write"},
 }
 
 func NewPlugin() (*Plugin, error) {
@@ -256,6 +284,9 @@ func (p *Plugin) Call(ctx context.Context, c *proto.GithubCallRequest) (*proto.G
 		}
 		return response(map[string]any{"repositories": repos, "mode": p.mode})
 	}
+	if c.Method == "github.GetInstallation" {
+		return p.installation(ctx, c)
+	}
 	h, ok := handlers[c.Method]
 	if !ok {
 		return nil, status.Error(codes.Unimplemented, "unsupported GitHub method")
@@ -265,6 +296,33 @@ func (p *Plugin) Call(ctx context.Context, c *proto.GithubCallRequest) (*proto.G
 		return nil, err
 	}
 	return p.enforce(ctx, c, op)
+}
+
+// installation reports, to the account principal only, the permissions the
+// App installation grants and what each operation needs. Read-only.
+func (p *Plugin) installation(ctx context.Context, c *proto.GithubCallRequest) (*proto.GithubCallResponse, error) {
+	if c.AgentId != "" {
+		return nil, status.Error(codes.PermissionDenied, "request denied by policy")
+	}
+	var empty struct{}
+	if err := decode(c.ParamsJson, &empty); err != nil {
+		return nil, err
+	}
+	if c.KmsTenant != p.tenant {
+		return response(map[string]any{"mode": p.mode, "permissions": map[string]string{}, "required": operationPermissions})
+	}
+	p.grantedMu.Lock()
+	defer p.grantedMu.Unlock()
+	if p.granted == nil || p.now().Sub(p.grantedAt) > grantedTTL {
+		ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		defer cancel()
+		granted, err := p.provider.Installation(ctx)
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, "couldn't read the GitHub App installation's permissions")
+		}
+		p.granted, p.grantedAt = granted, p.now()
+	}
+	return response(map[string]any{"mode": p.mode, "permissions": p.granted, "required": operationPermissions})
 }
 
 type createParams struct {

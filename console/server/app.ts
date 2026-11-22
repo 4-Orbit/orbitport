@@ -3,8 +3,8 @@ import { serveStatic } from "./static.ts";
 import { callGateway, readToken, type GatewayCall } from "./gateway.ts";
 import { parseRunRequest, parseGithubIssueRequest, RunError, Runner } from "./run.ts";
 import { GeminiError, type GeminiIssueClient } from "./gemini.ts";
-import type { GeminiAgent } from "./gemini-agent.ts";
-import { allowedMethods as allowedMethods_, preflightRequests } from "./agent-preflight.ts";
+import type { AgentRun, GeminiAgent } from "./gemini-agent.ts";
+import { allowedMethods as allowedMethods_, appAllowedMethods, preflightRequests } from "./agent-preflight.ts";
 import { GITHUB_TOOLS } from "./github-tools.ts";
 import { AGENT_ID_RE } from "./run.ts";
 
@@ -194,10 +194,30 @@ async function route(req: IncomingMessage, res: ServerResponse, opts: AppOptions
     const mode = await runner.githubMode(token);
     // Preflight against the active policy (no Gemini call): offer Gemini only
     // the tools that could be allowed, and none at all if nothing is.
-    const checks = preflightRequests(agentId, repository, GITHUB_TOOLS.map((t) => t.method));
-    const allowedMethods = await runner.simulate(token, checks.map((c) => c.request)).then((results) => allowedMethods_(checks, results));
+    const methods = GITHUB_TOOLS.map((t) => t.method);
+    const checks = preflightRequests(agentId, repository, methods);
+    const [byPolicy, installation] = await Promise.all([
+      runner.simulate(token, checks.map((c) => c.request)).then((results) => allowedMethods_(checks, results)),
+      runner.githubInstallation(token),
+    ]);
+    // And what the GitHub App installation can do (a read-only GitHub call,
+    // cached by the plugin): a tool it lacks the permissions for would only
+    // fail after Gemini chose it.
+    const byApp = installation ? appAllowedMethods(methods, installation.required, installation.permissions) : null;
+    let allowedMethods: Set<string> | undefined;
+    if (byPolicy || byApp) allowedMethods = new Set(methods.filter((m) => (!byPolicy || byPolicy.has(m)) && (!byApp || byApp.allowed.has(m))));
+    const skipped: NonNullable<AgentRun["skipped"]> = [];
+    for (const m of new Set(methods)) {
+      if (byPolicy && !byPolicy.has(m)) skipped.push({ method: m, why: "policy" });
+      else if (byApp?.missing[m]) skipped.push({ method: m, why: "app", missing: byApp.missing[m] });
+    }
     try {
       const run = await opts.geminiAgent.run({ task, scope: { agentId, repository }, mode, ...(allowedMethods && { allowedMethods }) }, (method, params) => runner.githubCall(token, agentId, method, params));
+      run.skipped = skipped;
+      if (run.stopped === "nothing_allowed" && skipped.some((s) => s.why === "app")) {
+        const lacks = [...new Set(skipped.flatMap((s) => s.missing ?? []))].sort();
+        run.final = `Gemini wasn't called: the policy and the GitHub App installation together allow none of the tools. The installation lacks ${lacks.join(", ")}; give the App those permissions and accept them on the installation.`;
+      }
       return sendJson(res, 200, { run, mode });
     } catch (error) {
       if (error instanceof RunError) return sendJson(res, error.status, { error: error.message });

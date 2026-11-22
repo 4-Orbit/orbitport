@@ -59,6 +59,8 @@ type providerStub struct {
 	// pull is what Pull returns; approvals what HumanApprovals returns.
 	pull      pullInfo
 	approvals int64
+	// installs counts installation reads.
+	installs int
 }
 
 func (p *providerStub) Create(context.Context, string, string, string) (int64, error) {
@@ -141,6 +143,11 @@ func (p *providerStub) OpenPulls(context.Context, string) ([]pullSummary, error)
 	p.mustFollowDecision()
 	p.calls++
 	return []pullSummary{{Number: 26, Title: "Update README.md", HeadBranch: "agent/developer-agent/x", HeadSHA: agentPull, BaseBranch: "main", AuthorIsApp: true}}, nil
+}
+
+func (p *providerStub) Installation(context.Context) (map[string]string, error) {
+	p.installs++
+	return map[string]string{"issues": "write", "metadata": "read"}, nil
 }
 
 // mustFollowDecision panics unless the decision audit was recorded first.
