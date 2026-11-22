@@ -1106,5 +1106,44 @@
       "id": "other-owner/other-repo"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent read README.md",
+    "agentId": "developer-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "README.md"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent read secrets/token.txt",
+    "agentId": "developer-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "secrets/token.txt"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent read README.md",
+    "agentId": "security-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "README.md"
+    },
+    "expect": "DENY"
   }
 ]

@@ -67,3 +67,55 @@ func TestContextIsIgnoredOnlyWhereNothingIsDeclared(t *testing.T) {
 		t.Fatalf("want an errored DENY, got %+v", res)
 	}
 }
+
+// sampleContext is a complete, neutral context for an action (nil if it
+// declares none).
+func sampleContext(action string) map[string]any {
+	fields := actionContext[action]
+	if len(fields) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for _, f := range fields {
+		out[f.Name] = map[ContextType]any{ContextString: "x", ContextBool: false, ContextLong: 0, ContextStringSet: []string{}, ContextAgent: "a"}[f.Type]
+	}
+	return out
+}
+
+// Every declared context field is in the schema with the same type, so a
+// policy can use it and the strict validator accepts it; a field the schema
+// lacks is rejected, which proves the validator checks context.
+func TestActionContextMatchesSchema(t *testing.T) {
+	expr := func(f ContextField) string {
+		e := map[ContextType]string{
+			ContextString:    `context.` + f.Name + ` like "*"`,
+			ContextBool:      `(context.` + f.Name + ` || true)`,
+			ContextLong:      `context.` + f.Name + ` >= 0`,
+			ContextStringSet: `context.` + f.Name + `.contains("x")`,
+			ContextAgent:     `principal is Agent && context.` + f.Name + ` == principal`,
+		}[f.Type]
+		if f.Optional {
+			e = `(context has ` + f.Name + ` && ` + e + `)`
+		}
+		return e
+	}
+	for action, fields := range actionContext {
+		conds := []string{"context.currentTime > 0"}
+		for _, f := range fields {
+			conds = append(conds, expr(f))
+		}
+		policy := `@id("p") permit (principal, action == Action::"` + action + `", resource) when { ` + strings.Join(conds, " && ") + ` };`
+		if _, problems := Compile(Bundle{Policies: policy}); len(problems) != 0 {
+			t.Errorf("%s: declared context doesn't validate: %+v\n%s", action, problems, policy)
+		}
+		bogus := `@id("p") permit (principal, action == Action::"` + action + `", resource) when { context.notDeclared == "x" };`
+		if _, problems := Compile(Bundle{Policies: bogus}); len(problems) == 0 {
+			t.Errorf("%s: an undeclared context field validated", action)
+		}
+		// Evaluation with a complete sample context works for this action.
+		res := Evaluate(nil, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: "o/r"}, Context: sampleContext(action)}, beforeExpiry)
+		if res.Decision != Allow {
+			t.Errorf("%s: account with a sample context: %+v", action, res)
+		}
+	}
+}

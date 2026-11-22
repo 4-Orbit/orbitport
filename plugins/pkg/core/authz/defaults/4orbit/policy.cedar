@@ -60,3 +60,12 @@ permit (
   action == Action::"github.issue.Create",
   resource == Repository::"demo-owner/orbitport-test"
 );
+
+// Developers may read the mock repository, but never anything under secrets/.
+@id("developer-read-demo-repo")
+permit (
+  principal in Role::"developer",
+  action == Action::"github.contents.Read",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+unless { context.path like "secrets/*" };

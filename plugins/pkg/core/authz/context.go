@@ -51,7 +51,11 @@ const (
 
 // actionContext lists the extra context fields of each action that has any.
 // The schema declares the same fields (TestActionContextMatchesSchema).
-var actionContext = map[string][]ContextField{}
+var actionContext = map[string][]ContextField{
+	"github.contents.Read": {
+		{Name: "path", Type: ContextString, Doc: "The file or directory read, relative to the repository root (empty for the root)."},
+	},
+}
 
 // ContextFields returns the extra context fields of an action, in order.
 func ContextFields(action string) []ContextField {

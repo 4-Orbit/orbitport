@@ -125,6 +125,7 @@ var (
 // not listed here before Cedar runs.
 var actionGroups = map[string]string{
 	"github.issue.Create":    "github.write",
+	"github.contents.Read":   "github.read",
 	"kms.Encrypt":            "use",
 	"kms.Decrypt":            "use",
 	"kms.Sign":               "use",
@@ -150,6 +151,7 @@ var actionGroups = map[string]string{
 // Resource type each action applies to.
 var actionResource = map[string]string{
 	"github.issue.Create":    "Repository",
+	"github.contents.Read":   "Repository",
 	"kms.ListKeys":           "KeyNamespace",
 	"kms_keystore.Put":       "KeyStoreKey",
 	"kms_keystore.Get":       "KeyStoreKey",

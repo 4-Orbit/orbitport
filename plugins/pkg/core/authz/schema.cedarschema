@@ -5,8 +5,9 @@
 // `action == Action::"kms.Encrypt"` or `action in Action::"use"`.
 //
 // Every resource carries `tenant`; the platform policy fences tenants.
-// `context.currentTime` is set by the enforcing plugin's trusted clock and is
-// the only context a policy can read.
+// `context.currentTime` is set by the enforcing plugin's trusted clock. GitHub
+// actions add trusted context computed by plugin-github from GitHub, never from
+// the caller (D-035); each such action declares its context type below.
 
 entity Role;
 entity Account { tenant: String };
@@ -24,8 +25,16 @@ entity PolicySet { tenant: String };
 entity Repository { tenant: String, owner: String, name: String };
 
 type TrustedContext = { currentTime: Long };
+// The repository path the read targets ("" is the root).
+type ContentsContext = { currentTime: Long, path: String };
 
-action "use", "rotate", "read", "admin", "keystore", "policy", "github.write";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read";
+
+action "github.contents.Read" in ["github.read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: ContentsContext,
+};
 
 action "github.issue.Create" in ["github.write"] appliesTo {
   principal: [Account, Agent],

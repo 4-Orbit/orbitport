@@ -103,9 +103,10 @@ func TestValidateReportsProblemsAndSummary(t *testing.T) {
 	good := mustCall(t, p, "policy.Validate", map[string]any{"policies": b.Policies, "entities": b.Entities})
 	assert.Equal(t, true, good["ok"])
 	summary := good["summary"].(map[string]any)
-	assert.Len(t, summary["policyIds"], 7)
+	templatePolicies := strings.Count(b.Policies, "@id(")
+	assert.Len(t, summary["policyIds"], templatePolicies)
 	described := good["policies"].([]any)
-	require.Len(t, described, 7)
+	require.Len(t, described, templatePolicies)
 	first := described[0].(map[string]any)
 	assert.Equal(t, "developer-encrypt-demo-key", first["id"])
 	assert.Equal(t, "permit", first["effect"])
@@ -210,7 +211,13 @@ func TestRunTestsAgainstDraft(t *testing.T) {
 	assert.EqualValues(t, len(authz.DefaultTests()), out["total"])
 
 	empty := mustCall(t, p, "policy.RunTests", map[string]any{"source": map[string]any{"draft": map[string]any{"policies": ""}}})
-	assert.EqualValues(t, 8, empty["failed"], "an empty draft fails exactly the ALLOW cases")
+	allows := 0
+	for _, tc := range authz.DefaultTests() {
+		if tc.Expect == authz.Allow {
+			allows++
+		}
+	}
+	assert.EqualValues(t, allows, empty["failed"], "an empty draft fails exactly the ALLOW cases")
 }
 
 func TestPutTestsValidates(t *testing.T) {

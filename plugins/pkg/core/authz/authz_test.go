@@ -119,7 +119,7 @@ func TestAccountPrincipalKeepsOwnerAccess(t *testing.T) {
 			if ResourceTypeFor(action) == "Repository" {
 				id = "test-owner/test-repo"
 			}
-			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: id}}, beforeExpiry)
+			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: id}, Context: sampleContext(action)}, beforeExpiry)
 			if res.Decision != Allow || res.DeterminingPolicies[0] != "platform.owner" {
 				t.Errorf("account %s: want ALLOW by platform.owner, got %s %v", action, res.Decision, res.DeterminingPolicies)
 			}
@@ -329,7 +329,22 @@ func generatedTests() []TestCase {
 	} {
 		cases = append(cases, TestCase{Name: tc.agent + " create issue " + tc.repo, AgentID: tc.agent, Action: "github.issue.Create", Resource: Resource{Type: "Repository", ID: tc.repo}, Expect: tc.expect})
 	}
+	cases = append(cases, githubOperationTests()...)
 	return cases
+}
+
+// githubOperationTests are the template's cases for GitHub operations with
+// trusted context, one ALLOW and the DENYs that matter per rule.
+func githubOperationTests() []TestCase {
+	demo := Resource{Type: "Repository", ID: "demo-owner/orbitport-test"}
+	read := func(agent, path string, expect Decision) TestCase {
+		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
+	}
+	return []TestCase{
+		read("developer-agent", "README.md", Allow),
+		read("developer-agent", "secrets/token.txt", Deny),
+		read("security-agent", "README.md", Deny),
+	}
 }
 
 func TestDefaultTestsMatchMatrix(t *testing.T) {

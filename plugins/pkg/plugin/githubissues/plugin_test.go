@@ -57,6 +57,34 @@ func (p *providerStub) Create(context.Context, string, string, string) (int64, e
 	}
 	return 42, nil
 }
+func (p *providerStub) ReadContents(_ context.Context, _ string, path, ref string) (contents, error) {
+	p.mustFollowDecision()
+	p.calls++
+	return contents{Type: "file", Path: path, Content: "FILE CONTENT SECRET"}, nil
+}
+
+// mustFollowDecision panics unless the decision audit was recorded first.
+func (p *providerStub) mustFollowDecision() {
+	if len(p.audit.events) == 0 || p.audit.events[len(p.audit.events)-1].Stage != "decision" {
+		panic("provider before decision audit")
+	}
+}
+
+// callOp runs one method with params as the agent and returns its result.
+func callOp(t *testing.T, p *Plugin, method, agent string, params map[string]any) (Result, error) {
+	t.Helper()
+	raw, _ := json.Marshal(params)
+	out, err := p.Call(context.Background(), &proto.GithubCallRequest{Method: method, KmsTenant: "tenant-a", AgentId: agent, JtiHash: "hash", ParamsJson: string(raw)})
+	if err != nil {
+		return Result{}, err
+	}
+	var r Result
+	if err := json.Unmarshal([]byte(out.ResultJson), &r); err != nil {
+		t.Fatal(err)
+	}
+	return r, nil
+}
+
 func setup() (*Plugin, *policyStub, *providerStub) {
 	policy := &policyStub{policies: `@id("issues") permit(principal == Agent::"developer-agent", action == Action::"github.issue.Create", resource == Repository::"test-owner/test-repo");`}
 	provider := &providerStub{audit: policy}

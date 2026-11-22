@@ -97,3 +97,13 @@ test("tool output is trimmed before Gemini sees it", () => {
   assert.equal(big.secretField, undefined);
   assert.ok(String(big.output).length < 17_000);
 });
+
+test("read tools map to github.contents.Read with the fixed repository", async () => {
+  const gemini = fakeGemini([[call("read_file", { path: "README.md" }), call("list_directory", {}, "c2")], [text("read")]]);
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (method, params) => (calls.push({ method, params }), { result: { decision: "ALLOW", status: "SUCCESS", output: { type: "file" } } }));
+  assert.deepEqual(calls, [
+    { method: "github.contents.Read", params: { repository: "owner/repo", path: "README.md" } },
+    { method: "github.contents.Read", params: { repository: "owner/repo", path: "" } },
+  ]);
+});

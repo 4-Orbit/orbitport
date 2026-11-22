@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -144,3 +148,72 @@ func (p *realProvider) request(ctx context.Context, method, path, token string, 
 type refusal struct{ status int }
 
 func (r refusal) Error() string { return fmt.Sprintf("GitHub request refused (HTTP %d)", r.status) }
+
+// escapePath escapes each segment of a repository path for a URL.
+func escapePath(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+// notFound turns GitHub's 404 into a safe, stated refusal.
+func notFound(err error, what string) error {
+	if r, ok := err.(refusal); ok && r.status == http.StatusNotFound {
+		return precondition{what + " not found"}
+	}
+	return err
+}
+
+// maxDirEntries bounds a directory listing.
+const maxDirEntries = 1000
+
+func (p *realProvider) ReadContents(ctx context.Context, repo, path, ref string) (contents, error) {
+	token, err := p.token(ctx, repo, map[string]string{"contents": "read"})
+	if err != nil {
+		return contents{}, err
+	}
+	target := "/repos/" + repo + "/contents/" + escapePath(path)
+	if ref != "" {
+		target += "?ref=" + url.QueryEscape(ref)
+	}
+	var raw json.RawMessage
+	if err := p.request(ctx, http.MethodGet, target, token, nil, &raw, http.StatusOK); err != nil {
+		return contents{}, notFound(err, "path")
+	}
+	if len(raw) > 0 && raw[0] == '[' {
+		var list []entry
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return contents{}, fmt.Errorf("invalid GitHub response")
+		}
+		if len(list) > maxDirEntries {
+			list = list[:maxDirEntries]
+		}
+		return contents{Type: "dir", Path: path, Entries: list}, nil
+	}
+	var file struct {
+		Type     string `json:"type"`
+		Path     string `json:"path"`
+		Size     int64  `json:"size"`
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil || file.Type != "file" {
+		return contents{}, precondition{"not a file or directory"}
+	}
+	out := contents{Type: "file", Path: file.Path, Size: file.Size}
+	if file.Encoding != "base64" {
+		return out, precondition{"file too large to read through the API"}
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(file.Content, "\n", ""))
+	if err != nil {
+		return contents{}, fmt.Errorf("invalid GitHub response")
+	}
+	if utf8.Valid(data) {
+		out.Content = string(data)
+	} else {
+		out.Binary = true
+	}
+	return out, nil
+}

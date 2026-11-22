@@ -44,6 +44,31 @@ export const GITHUB_TOOLS: GithubTool[] = [
   },
 ];
 
+const readTool = (name: string, description: string): GithubTool => ({
+  name,
+  description,
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: name === "read_file" ? "File path relative to the repository root" : "Directory path relative to the root; empty for the root" },
+      ref: { type: "string", description: "Branch, tag or commit to read; omit for the default branch" },
+    },
+    required: name === "read_file" ? ["path"] : [],
+  },
+  method: "github.contents.Read",
+  params: (a, s) => {
+    if (!only(a, ["path", "ref"]) || (a.path !== undefined && !str(a.path, 512)) || (a.ref !== undefined && !str(a.ref, 255))) return "path (up to 512 characters) and an optional ref";
+    if (name === "read_file" && !a.path) return "path is required";
+    return { repository: s.repository, path: a.path ?? "", ...(a.ref ? { ref: a.ref } : {}) };
+  },
+  summary: (a) => `${name === "read_file" ? "read" : "list"} ${a.path || "/"}${a.ref ? ` @ ${a.ref}` : ""}`,
+});
+
+GITHUB_TOOLS.push(
+  readTool("read_file", "Read one file. Returns its text content."),
+  readTool("list_directory", "List the files and folders in a directory."),
+);
+
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);
 
 /** Helpers shared by tools added later. */

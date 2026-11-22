@@ -45,6 +45,25 @@ var repoRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Z
 // as the App; mockRepo keeps an in-memory repository.
 type provider interface {
 	Create(ctx context.Context, repo, title, body string) (int64, error)
+	// ReadContents returns a file or a directory listing at ref ("" = default branch).
+	ReadContents(ctx context.Context, repo, path, ref string) (contents, error)
+}
+
+// contents is a file (Content set) or a directory (Entries set).
+type contents struct {
+	Type    string  `json:"type"`
+	Path    string  `json:"path"`
+	Size    int64   `json:"size,omitempty"`
+	Content string  `json:"content,omitempty"`
+	Binary  bool    `json:"binary,omitempty"`
+	Entries []entry `json:"entries,omitempty"`
+}
+
+type entry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size int64  `json:"size,omitempty"`
 }
 
 type Plugin struct {
@@ -144,7 +163,8 @@ type handler func(p *Plugin, c *proto.GithubCallRequest) (operation, error)
 
 // handlers is the action registry: one entry per supported GitHub method.
 var handlers = map[string]handler{
-	CreateAction: (*Plugin).createIssue,
+	CreateAction:           (*Plugin).createIssue,
+	"github.contents.Read": (*Plugin).readContents,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -211,6 +231,64 @@ func (p *Plugin) createIssue(c *proto.GithubCallRequest) (operation, error) {
 		}
 		return out, nil
 	}}, nil
+}
+
+var (
+	pathSegmentRE = regexp.MustCompile(`^[A-Za-z0-9._@+=,-][A-Za-z0-9._@+=, -]{0,254}$`)
+	refRE         = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._/-]{0,254}$`)
+)
+
+// cleanPath validates a repository path: relative, no "." or ".." segments,
+// at most 512 bytes. Leading and trailing slashes are dropped; "" is the root.
+func cleanPath(path string) (string, bool) {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return "", true
+	}
+	if len(path) > 512 {
+		return "", false
+	}
+	for _, seg := range strings.Split(path, "/") {
+		if seg == "." || seg == ".." || !pathSegmentRE.MatchString(seg) {
+			return "", false
+		}
+	}
+	return path, true
+}
+
+// validRef accepts a branch, tag or commit id without ".." or "//".
+func validRef(ref string) bool {
+	return refRE.MatchString(ref) && !strings.Contains(ref, "..") && !strings.Contains(ref, "//") && !strings.HasSuffix(ref, "/")
+}
+
+type readParams struct {
+	Repository string `json:"repository"`
+	Path       string `json:"path"`
+	Ref        string `json:"ref,omitempty"`
+}
+
+func (p *Plugin) readContents(c *proto.GithubCallRequest) (operation, error) {
+	var args readParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	path, ok := cleanPath(args.Path)
+	if !repoRE.MatchString(args.Repository) || !ok || (args.Ref != "" && !validRef(args.Ref)) {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, a relative path without . or .. segments, and an optional ref")
+	}
+	return operation{
+		action:     "github.contents.Read",
+		repository: args.Repository,
+		// The policy sees exactly the path that will be read.
+		lookup: func(context.Context) (map[string]any, error) { return map[string]any{"path": path}, nil },
+		run: func(ctx context.Context, _ string) (outcome, error) {
+			got, err := p.provider.ReadContents(ctx, p.repository, path, args.Ref)
+			if err != nil {
+				return outcome{}, err
+			}
+			return outcome{Ref: args.Ref, Output: got}, nil
+		},
+	}, nil
 }
 
 // enforce runs one operation through policy, audit and the provider.

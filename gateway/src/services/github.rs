@@ -4,7 +4,11 @@ use crate::plugins::PluginCatalog;
 use crate::proto::plugins::github::GithubCallRequest;
 use serde_json::value::RawValue;
 
-pub const GITHUB_METHODS: &[&str] = &["github.ListRepositories", "github.issue.Create"];
+pub const GITHUB_METHODS: &[&str] = &[
+    "github.ListRepositories",
+    "github.issue.Create",
+    "github.contents.Read",
+];
 
 #[derive(Debug)]
 pub struct GithubCall {
@@ -66,6 +70,7 @@ mod tests {
                 .is_ok()
         );
         assert!(GithubCall::parse("github.ListRepositories", "{}").is_ok());
+        assert!(GithubCall::parse("github.contents.Read", "{}").is_ok());
         assert!(GithubCall::parse("github.pr.Merge", "{}").is_err());
         assert!(
             GithubCall::parse("github.issue.Create", "null")

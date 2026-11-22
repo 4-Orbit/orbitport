@@ -52,6 +52,7 @@ export interface Capability {
 /** What the builder offers, in display order. Groups first, then single actions. */
 export const CAPABILITIES: Capability[] = [
   { id: "github.issue.Create", label: "Create issues", verb: "create issues", prep: "in", resourceType: "Repository" },
+  { id: "github.contents.Read", label: "Read files", verb: "read files", prep: "in", resourceType: "Repository" },
   { id: "use", label: "Use keys (encrypt, decrypt, sign, data keys)", verb: "use", prep: "" },
   { id: "kms.Encrypt", label: "Encrypt", verb: "encrypt", prep: "with", group: "use" },
   { id: "kms.Decrypt", label: "Decrypt", verb: "decrypt", prep: "with", group: "use" },

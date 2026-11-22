@@ -19,7 +19,7 @@ test("defaults cover every required field and leave optional ones unset", () => 
 test("the request carries declared fields only, and no context for actions without one", () => {
   assert.equal(contextForRequest([], { x: 1 }), undefined);
   assert.deepEqual(contextForRequest(fields, { ...defaultContext(fields), headAgent: "", extra: true }), { branch: "", isDefaultBranch: false, humanApprovals: 0, paths: [] });
-  assert.deepEqual(contextForRequest(fields, { ...defaultContext(fields), headAgent: "dev" }).headAgent, "dev");
+  assert.deepEqual(contextForRequest(fields, { ...defaultContext(fields), headAgent: "dev" })?.headAgent, "dev");
 });
 
 test("problems and set parsing", () => {

@@ -8,6 +8,7 @@ const rules: Rule[] = [
   { id: "github-developer-create-issues", effect: "permit", who: { kind: "role", id: "developer" }, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["4-Orbit/orbitport-issue-test"] } },
   { id: "github-agent-create-until", effect: "permit", who: { kind: "agent", id: "developer-agent" }, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["4-Orbit/orbitport-issue-test", "4-Orbit/another-test"] }, until: 1800000000 },
   { id: "github-block-agent-issues", effect: "forbid", who: { kind: "anyAgent" }, can: ["github.issue.Create"], on: { kind: "repositories", ids: ["4-Orbit/private-repo"] } },
+  { id: "github-developer-read-and-create", effect: "permit", who: { kind: "role", id: "developer" }, can: ["github.issue.Create", "github.contents.Read"], on: { kind: "repositories", ids: ["4-Orbit/orbitport-issue-test"] } },
   { id: "developer-encrypt-dev-key", effect: "permit", who: { kind: "role", id: "developer" }, can: ["kms.Encrypt"], on: { kind: "keys", ids: ["dev-key"] } },
   { id: "ci-sign-release-keys", effect: "permit", who: { kind: "agent", id: "ci-agent" }, can: ["kms.Sign", "read"], on: { kind: "keys", ids: ["release-a", "release-b"] }, until: 1800000000 },
   { id: "deny-agents-prod", effect: "forbid", who: { kind: "anyAgent" }, can: [], on: { kind: "tag", key: "env", value: "prod" } },
@@ -21,6 +22,7 @@ const rules: Rule[] = [
 const custom = [
   `@id("github-unrestricted-resources") permit (principal is Agent, action == Action::"github.issue.Create", resource);`,
   `@id("github-every-action") forbid (principal is Agent, action, resource == Repository::"4-Orbit/private-repo");`,
+  `@id("github-read-outside-secrets") permit (principal in Role::"developer", action == Action::"github.contents.Read", resource == Repository::"4-Orbit/orbitport-issue-test") unless { context.path like "secrets/*" };`,
   `@id("unless-clause") permit (principal in Role::"developer", action, resource) unless { resource.hasTag("env") };`,
   `@id("extra-annotation") @reason("audit") permit (principal in Role::"developer", action, resource);`,
   `@id("keys-and-tag") permit (principal in Role::"developer", action, resource == Key::"a") when { resource.hasTag("env") && resource.getTag("env") == "dev" };`,
