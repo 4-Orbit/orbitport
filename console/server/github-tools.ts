@@ -152,6 +152,27 @@ GITHUB_TOOLS.push(
     },
     summary: (a) => `pull request ${String(a.head)} → ${a.base ? String(a.base) : "default branch"}: “${String(a.title ?? "").slice(0, 60)}”`,
   },
+  {
+    name: "review_pull_request",
+    description: "Review a pull request: COMMENT or REQUEST_CHANGES with a body, or APPROVE. Agents can't approve pull requests opened by agents; a person approves those on GitHub.",
+    parameters: {
+      type: "object",
+      properties: {
+        number: { type: "integer", description: "Pull request number" },
+        event: { type: "string", enum: ["COMMENT", "REQUEST_CHANGES", "APPROVE"] },
+        body: { type: "string", description: "Review text (required unless approving)" },
+      },
+      required: ["number", "event"],
+    },
+    method: "github.pr.Review",
+    params: (a, s) => {
+      const events = ["COMMENT", "REQUEST_CHANGES", "APPROVE"];
+      if (!only(a, ["number", "event", "body"]) || !int(a.number) || typeof a.event !== "string" || !events.includes(a.event) || (a.body !== undefined && !str(a.body, 16_384))) return "number, event (COMMENT, REQUEST_CHANGES or APPROVE) and body";
+      if (a.event !== "APPROVE" && !(typeof a.body === "string" && a.body.trim())) return "a body is required unless approving";
+      return { repository: s.repository, number: a.number, event: a.event, ...(a.body ? { body: a.body } : {}) };
+    },
+    summary: (a) => `${String(a.event ?? "").toLowerCase().replace("_", " ")} review on #${String(a.number)}`,
+  },
 );
 
 export const toolByName = (name: string) => GITHUB_TOOLS.find((t) => t.name === name);

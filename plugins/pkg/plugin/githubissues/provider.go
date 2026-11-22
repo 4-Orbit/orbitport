@@ -377,3 +377,52 @@ func (p *realProvider) OpenPull(ctx context.Context, repo, head, base, title, bo
 	}
 	return pull.Number, nil
 }
+
+func (p *realProvider) Pull(ctx context.Context, repo string, number int64) (pullInfo, error) {
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "read"})
+	if err != nil {
+		return pullInfo{}, err
+	}
+	var pr struct {
+		State          string `json:"state"`
+		MergeableState string `json:"mergeable_state"`
+		Head           struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+		User struct {
+			Type string `json:"type"`
+		} `json:"user"`
+	}
+	if err := p.request(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", repo, number), token, nil, &pr, http.StatusOK); err != nil {
+		return pullInfo{}, notFound(err, "pull request")
+	}
+	if !commitIDRE.MatchString(pr.Head.SHA) || pr.Head.Ref == "" {
+		return pullInfo{}, fmt.Errorf("invalid pull request response")
+	}
+	return pullInfo{HeadRef: pr.Head.Ref, HeadSHA: pr.Head.SHA, BaseRef: pr.Base.Ref, Open: pr.State == "open", AuthorIsApp: pr.User.Type == "Bot", MergeableState: pr.MergeableState}, nil
+}
+
+func (p *realProvider) Review(ctx context.Context, repo string, number int64, event, body string, _ bool) (int64, error) {
+	token, err := p.token(ctx, repo, map[string]string{"pull_requests": "write"})
+	if err != nil {
+		return 0, err
+	}
+	payload := map[string]string{"event": event}
+	if body != "" {
+		payload["body"] = body
+	}
+	var review struct {
+		ID int64 `json:"id"`
+	}
+	if err := p.request(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/reviews", repo, number), token, payload, &review, http.StatusOK); err != nil {
+		if r, ok := err.(refusal); ok && r.status == http.StatusUnprocessableEntity {
+			return 0, precondition{"GitHub refused the review"}
+		}
+		return 0, notFound(err, "pull request")
+	}
+	return review.ID, nil
+}

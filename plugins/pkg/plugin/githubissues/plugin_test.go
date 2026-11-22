@@ -50,6 +50,8 @@ type providerStub struct {
 	// lookupErr fails every lookup; lookups counts them.
 	lookupErr error
 	lookups   int
+	// pull is what Pull returns.
+	pull pullInfo
 }
 
 func (p *providerStub) Create(context.Context, string, string, string) (int64, error) {
@@ -102,6 +104,18 @@ func (p *providerStub) OpenPull(_ context.Context, _ string, head, base, _, body
 	p.calls++
 	p.last = head + "->" + base + "|" + body
 	return 12, nil
+}
+
+func (p *providerStub) Pull(context.Context, string, int64) (pullInfo, error) {
+	p.lookups++
+	return p.pull, p.lookupErr
+}
+
+func (p *providerStub) Review(_ context.Context, _ string, _ int64, event, body string, _ bool) (int64, error) {
+	p.mustFollowDecision()
+	p.calls++
+	p.last = event + "|" + body
+	return 4, nil
 }
 
 // mustFollowDecision panics unless the decision audit was recorded first.

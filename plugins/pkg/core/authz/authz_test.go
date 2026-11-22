@@ -359,6 +359,10 @@ func githubOperationTests() []TestCase {
 		}
 		return TestCase{Name: agent + " open pull request from " + head, AgentID: agent, Action: "github.pr.Create", Resource: demo, Context: ctx, Expect: expect}
 	}
+	review := func(agent, head, event string, expect Decision) TestCase {
+		ctx := map[string]any{"event": event, "headBranch": head, "authorIsApp": true, "headAgent": strings.SplitN(strings.TrimPrefix(head, "agent/"), "/", 2)[0]}
+		return TestCase{Name: agent + " " + strings.ToLower(event) + " review on " + head, AgentID: agent, Action: "github.pr.Review", Resource: demo, Context: ctx, Expect: expect}
+	}
 	read := func(agent, path string, expect Decision) TestCase {
 		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
 	}
@@ -379,6 +383,10 @@ func githubOperationTests() []TestCase {
 		pull("developer-agent", "agent/developer-agent/fix", Allow),
 		pull("developer-agent", "agent/security-agent/fix", Deny),
 		pull("security-agent", "agent/security-agent/fix", Deny),
+		review("security-agent", "agent/developer-agent/fix", "REQUEST_CHANGES", Allow),
+		review("security-agent", "agent/developer-agent/fix", "APPROVE", Deny),
+		review("security-agent", "agent/security-agent/fix", "COMMENT", Deny),
+		review("developer-agent", "agent/security-agent/fix", "COMMENT", Deny),
 	}
 }
 

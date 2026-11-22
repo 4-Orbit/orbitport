@@ -204,3 +204,26 @@ func TestRealProviderOpensAPullRequest(t *testing.T) {
 		t.Fatalf("%d %v", n, err)
 	}
 }
+
+func TestRealProviderReadsAndReviewsPullRequests(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	reader := fakeGithub(t, `{"permissions":{"pull_requests":"read"},"repositories":["test-repo"]}`, func(r *http.Request, _ map[string]any) (int, string) {
+		if r.Method != "GET" || r.URL.Path != "/repos/test-owner/test-repo/pulls/12" {
+			t.Fatalf("wrong read %s %s", r.Method, r.URL)
+		}
+		return 200, `{"state":"open","mergeable_state":"clean","head":{"ref":"agent/dev/x","sha":"` + head + `"},"base":{"ref":"main"},"user":{"type":"Bot"}}`
+	})
+	pr, err := reader.Pull(context.Background(), "test-owner/test-repo", 12)
+	if err != nil || pr.HeadRef != "agent/dev/x" || !pr.AuthorIsApp || !pr.Open || pr.MergeableState != "clean" {
+		t.Fatalf("%+v %v", pr, err)
+	}
+	reviewer := fakeGithub(t, `{"permissions":{"pull_requests":"write"},"repositories":["test-repo"]}`, func(r *http.Request, body map[string]any) (int, string) {
+		if r.Method != "POST" || r.URL.Path != "/repos/test-owner/test-repo/pulls/12/reviews" || body["event"] != "COMMENT" || body["body"] != "hi" {
+			t.Fatalf("wrong review %s %s %v", r.Method, r.URL, body)
+		}
+		return 200, `{"id":9}`
+	})
+	if id, err := reviewer.Review(context.Background(), "test-owner/test-repo", 12, "COMMENT", "hi", false); err != nil || id != 9 {
+		t.Fatalf("%d %v", id, err)
+	}
+}

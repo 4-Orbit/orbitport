@@ -34,6 +34,15 @@ type mockRepo struct {
 type mockPull struct {
 	head, base string
 	merged     bool
+	// reviews are the latest review per reviewer: human (an account-token
+	// stand-in for a person) or the App.
+	reviews []mockReview
+}
+
+type mockReview struct {
+	event string
+	human bool
+	sha   string
 }
 
 func newMockRepo() *mockRepo {
@@ -205,4 +214,29 @@ func (m *mockRepo) OpenPull(_ context.Context, _ string, head, base, _, _ string
 	m.issues[n] = 0
 	m.pulls[n] = &mockPull{head: head, base: base}
 	return n, nil
+}
+
+func (m *mockRepo) Pull(_ context.Context, _ string, number int64) (pullInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.pulls[number]
+	if !ok {
+		return pullInfo{}, precondition{"pull request not found"}
+	}
+	state := "clean"
+	if m.heads[pr.head] == m.heads[pr.base] {
+		state = "unknown"
+	}
+	return pullInfo{HeadRef: pr.head, HeadSHA: m.heads[pr.head], BaseRef: pr.base, Open: !pr.merged, AuthorIsApp: true, MergeableState: state}, nil
+}
+
+func (m *mockRepo) Review(_ context.Context, _ string, number int64, event, _ string, human bool) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.pulls[number]
+	if !ok || pr.merged {
+		return 0, precondition{"pull request not found"}
+	}
+	pr.reviews = append(pr.reviews, mockReview{event: event, human: human, sha: m.heads[pr.head]})
+	return int64(len(pr.reviews)), nil
 }

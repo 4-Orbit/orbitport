@@ -293,3 +293,51 @@ func TestMockPullRequestsNeedChanges(t *testing.T) {
 		t.Fatal("opened a second pull request for the same branch")
 	}
 }
+
+const agentPull = "0123456789abcdef0123456789abcdef01234567"
+
+func TestReviewNeverOfYourOwnPullRequest(t *testing.T) {
+	p, policy, provider := setup()
+	provider.pull = pullInfo{HeadRef: "agent/developer-agent/fix", HeadSHA: agentPull, BaseRef: "main", Open: true, AuthorIsApp: true}
+	policy.policies = `@id("review") permit(principal, action == Action::"github.pr.Review", resource == Repository::"test-owner/test-repo");
+@id("not-own") forbid(principal is Agent, action == Action::"github.pr.Review", resource) when { context has headAgent && context.headAgent == principal };`
+	r, err := callOp(t, p, "github.pr.Review", "security-agent", map[string]any{"repository": repo, "number": 12, "event": "REQUEST_CHANGES", "body": "Please add a test"})
+	if err != nil || r.Decision != authz.Allow || r.Status != "SUCCESS" || r.Context["headAgent"] != "developer-agent" || !strings.HasPrefix(provider.last, "REQUEST_CHANGES|Please add a test") {
+		t.Fatalf("%+v %v %q", r, err, provider.last)
+	}
+	if r, _ := callOp(t, p, "github.pr.Review", "developer-agent", map[string]any{"repository": repo, "number": 12, "event": "COMMENT", "body": "LGTM"}); r.Decision != authz.Deny {
+		t.Fatalf("reviewed its own pull request: %+v", r)
+	}
+	// An agent can't approve an App-authored pull request: GitHub forbids it.
+	provider.calls = 0
+	if _, err := callOp(t, p, "github.pr.Review", "security-agent", map[string]any{"repository": repo, "number": 12, "event": "APPROVE"}); err == nil || provider.calls != 0 || !strings.Contains(err.Error(), "person must approve") {
+		t.Fatalf("agent approval: %v", err)
+	}
+	provider.pull.Open = false
+	if _, err := callOp(t, p, "github.pr.Review", "security-agent", map[string]any{"repository": repo, "number": 12, "event": "COMMENT", "body": "x"}); err == nil {
+		t.Fatal("reviewed a closed pull request")
+	}
+	for _, bad := range []map[string]any{
+		{"repository": repo, "number": 12, "event": "MERGE", "body": "x"},
+		{"repository": repo, "number": 12, "event": "COMMENT"},
+	} {
+		if _, err := callOp(t, p, "github.pr.Review", "security-agent", bad); err == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+}
+
+func TestMockAccountReviewsStandInForPeople(t *testing.T) {
+	p, policy, _ := setup()
+	mock := newMockRepo()
+	p.provider, p.mode = mock, "mock"
+	policy.policies = ""
+	ctx := context.Background()
+	_, _ = mock.CreateBranch(ctx, repo, "agent/developer-agent/fix", "")
+	_, _ = mock.Commit(ctx, repo, "agent/developer-agent/fix", "m", []fileChange{{Path: "README.md", Content: "x"}})
+	n, _ := mock.OpenPull(ctx, repo, "agent/developer-agent/fix", "main", "t", "b")
+	r, err := callOp(t, p, "github.pr.Review", "", map[string]any{"repository": repo, "number": n, "event": "APPROVE"})
+	if err != nil || r.Status != "SUCCESS" || len(mock.pulls[n].reviews) != 1 || !mock.pulls[n].reviews[0].human {
+		t.Fatalf("account approval in mock mode: %+v %v", r, err)
+	}
+}

@@ -60,6 +60,20 @@ type provider interface {
 	Commit(ctx context.Context, repo, branch, message string, changes []fileChange) (string, error)
 	// OpenPull opens a pull request from head into base and returns its number.
 	OpenPull(ctx context.Context, repo, head, base, title, body string) (int64, error)
+	// Pull reads a pull request (a lookup).
+	Pull(ctx context.Context, repo string, number int64) (pullInfo, error)
+	// Review submits a review. human is true only for the account principal
+	// in mock mode, which stands in for a person reviewing on GitHub.
+	Review(ctx context.Context, repo string, number int64, event, body string, human bool) (int64, error)
+}
+
+// pullInfo is what the plugin needs to know about a pull request.
+type pullInfo struct {
+	HeadRef, HeadSHA, BaseRef string
+	Open                      bool
+	AuthorIsApp               bool
+	// MergeableState is GitHub's mergeable_state ("clean", "blocked", ...).
+	MergeableState string
 }
 
 // fileChange adds or replaces a file, or deletes it (Delete set).
@@ -189,6 +203,7 @@ var handlers = map[string]handler{
 	"github.branch.Create": (*Plugin).createBranch,
 	"github.commit.Create": (*Plugin).createCommit,
 	"github.pr.Create":     (*Plugin).createPull,
+	"github.pr.Review":     (*Plugin).reviewPull,
 }
 
 // Methods lists the GitHub methods the plugin serves (besides ListRepositories).
@@ -550,6 +565,63 @@ func (p *Plugin) createPull(c *proto.GithubCallRequest) (operation, error) {
 			out := outcome{Number: n, Ref: args.Head}
 			if p.mode == "real" {
 				out.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.repository, n)
+			}
+			return out, nil
+		},
+	}, nil
+}
+
+type reviewParams struct {
+	Repository string `json:"repository"`
+	Number     int64  `json:"number"`
+	Event      string `json:"event"`
+	Body       string `json:"body,omitempty"`
+}
+
+func (p *Plugin) reviewPull(c *proto.GithubCallRequest) (operation, error) {
+	var args reviewParams
+	if err := decode(c.ParamsJson, &args); err != nil {
+		return operation{}, err
+	}
+	validEvent := args.Event == "COMMENT" || args.Event == "REQUEST_CHANGES" || args.Event == "APPROVE"
+	if !repoRE.MatchString(args.Repository) || args.Number <= 0 || !validEvent || len(args.Body) > 60000 || (args.Event != "APPROVE" && strings.TrimSpace(args.Body) == "") {
+		return operation{}, status.Error(codes.InvalidArgument, "expected repository, pull request number, event (COMMENT, REQUEST_CHANGES or APPROVE) and a body (required unless approving)")
+	}
+	human := p.mode == "mock" && c.AgentId == ""
+	return operation{
+		action:     "github.pr.Review",
+		repository: args.Repository,
+		lookup: func(ctx context.Context) (map[string]any, error) {
+			pr, err := p.provider.Pull(ctx, p.repository, args.Number)
+			if err != nil {
+				return nil, err
+			}
+			if !pr.Open {
+				return nil, precondition{"the pull request is closed"}
+			}
+			// GitHub never lets an App approve a pull request it opened, and
+			// every agent acts as the App. A person approves on GitHub.
+			if args.Event == "APPROVE" && pr.AuthorIsApp && !human {
+				return nil, precondition{"GitHub doesn't let the App approve a pull request it opened; a person must approve it on GitHub"}
+			}
+			out := map[string]any{"event": args.Event, "headBranch": pr.HeadRef, "authorIsApp": pr.AuthorIsApp}
+			if agent := branchAgent(pr.HeadRef); agent != "" {
+				out["headAgent"] = agent
+			}
+			return out, nil
+		},
+		run: func(ctx context.Context, requestID string) (outcome, error) {
+			body := args.Body
+			if body != "" {
+				body = attribution(body, c, requestID)
+			}
+			id, err := p.provider.Review(ctx, p.repository, args.Number, args.Event, body, human)
+			if err != nil {
+				return outcome{}, err
+			}
+			out := outcome{Number: args.Number}
+			if p.mode == "real" {
+				out.URL = fmt.Sprintf("https://github.com/%s/pull/%d#pullrequestreview-%d", p.repository, args.Number, id)
 			}
 			return out, nil
 		},

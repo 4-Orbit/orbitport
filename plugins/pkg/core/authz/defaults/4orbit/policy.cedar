@@ -107,3 +107,23 @@ permit (
   resource == Repository::"demo-owner/orbitport-test"
 )
 when { context has headAgent && context.headAgent == principal };
+
+// Security agents review pull requests (comment or request changes).
+// Approval stays with people: GitHub doesn't let the App approve its own
+// pull requests, and every agent acts as the App.
+@id("security-review-demo-repo")
+permit (
+  principal in Role::"security",
+  action == Action::"github.pr.Review",
+  resource == Repository::"demo-owner/orbitport-test"
+)
+when { context.event != "APPROVE" };
+
+// No agent reviews its own pull request.
+@id("no-agent-reviews-own-pull")
+forbid (
+  principal is Agent,
+  action == Action::"github.pr.Review",
+  resource
+)
+when { context has headAgent && context.headAgent == principal };

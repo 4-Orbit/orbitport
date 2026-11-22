@@ -66,6 +66,12 @@ var actionContext = map[string][]ContextField{
 		{Name: "isDefaultBase", Type: ContextBool, Doc: "Whether the base is the repository's default branch, read from GitHub."},
 		{Name: "headAgent", Type: ContextAgent, Optional: true, Doc: "The agent an agent/<agent-id>/... head branch belongs to."},
 	},
+	"github.pr.Review": {
+		{Name: "event", Type: ContextString, Doc: "COMMENT, REQUEST_CHANGES or APPROVE."},
+		{Name: "headBranch", Type: ContextString, Doc: "The pull request's branch, read from GitHub."},
+		{Name: "headAgent", Type: ContextAgent, Optional: true, Doc: "The agent whose agent/<agent-id>/... branch the pull request proposes."},
+		{Name: "authorIsApp", Type: ContextBool, Doc: "Whether the GitHub App (so, an agent) opened the pull request, read from GitHub."},
+	},
 }
 
 // branchContext is the context of every write to a branch.

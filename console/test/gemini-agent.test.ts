@@ -142,3 +142,11 @@ test("open_pull_request maps to github.pr.Create", async () => {
   await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (method, params) => (calls.push({ method, params }), { result: { decision: "ALLOW", status: "SUCCESS", number: 3 } }));
   assert.deepEqual(calls, [{ method: "github.pr.Create", params: { repository: "owner/repo", head: "agent/developer-agent/fix", title: "Fix typo", body: "Fixes README" } }]);
 });
+
+test("review_pull_request requires a body unless approving", async () => {
+  const gemini = fakeGemini([[call("review_pull_request", { number: 4, event: "COMMENT" }), call("review_pull_request", { number: 4, event: "REQUEST_CHANGES", body: "Add a test" }, "c2")], [text("ok")]]);
+  const calls: Record<string, unknown>[] = [];
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "mock" }, async (_m, params) => (calls.push(params), { result: { decision: "ALLOW", status: "SUCCESS" } }));
+  assert.ok(run.steps[0].error);
+  assert.deepEqual(calls, [{ repository: "owner/repo", number: 4, event: "REQUEST_CHANGES", body: "Add a test" }]);
+});

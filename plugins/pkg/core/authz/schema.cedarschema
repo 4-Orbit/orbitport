@@ -33,6 +33,10 @@ type BranchContext = { currentTime: Long, branch: String, isDefaultBranch: Bool,
 // A pull request proposal. headAgent is the agent whose agent/<agent-id>/...
 // branch is proposed; baseBranch defaults to the repository's default branch.
 type PullCreateContext = { currentTime: Long, headBranch: String, baseBranch: String, isDefaultBase: Bool, headAgent?: Agent };
+// A pull request review. event is COMMENT, REQUEST_CHANGES or APPROVE;
+// headAgent is the agent whose branch the pull request proposes, so a policy
+// can forbid reviewing your own work; authorIsApp says the App opened it.
+type ReviewContext = { currentTime: Long, event: String, headBranch: String, headAgent?: Agent, authorIsApp: Bool };
 // A commit: the branch fields, every path it adds, changes or deletes, and
 // whether any of them is under .github/workflows/.
 type CommitContext = {
@@ -44,7 +48,13 @@ type CommitContext = {
   touchesWorkflows: Bool,
 };
 
-action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code", "github.pr";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code", "github.pr", "github.review";
+
+action "github.pr.Review" in ["github.review"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: ReviewContext,
+};
 
 action "github.pr.Create" in ["github.pr"] appliesTo {
   principal: [Account, Agent],

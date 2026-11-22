@@ -1347,5 +1347,69 @@
       "isDefaultBase": true
     },
     "expect": "DENY"
+  },
+  {
+    "name": "security-agent request_changes review on agent/developer-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "REQUEST_CHANGES",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent approve review on agent/developer-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "APPROVE",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent comment review on agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "COMMENT",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent comment review on agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "COMMENT",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix"
+    },
+    "expect": "DENY"
   }
 ]
