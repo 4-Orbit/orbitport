@@ -69,6 +69,7 @@ export function AgentRunView({ run, mode }: { run: AgentRun; mode: "mock" | "rea
                               </a>
                             </>
                           )}
+                          {s.reason && <div className="field-hint">{s.reason}</div>}
                         </>
                       )}
                     </td>

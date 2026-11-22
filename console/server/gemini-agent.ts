@@ -33,6 +33,8 @@ export interface AgentStep {
   url?: string;
   /** Why the call didn't reach a decision (bad arguments, gateway error). */
   error?: string;
+  /** Why an allowed call didn't succeed (e.g. a missing GitHub App permission). */
+  reason?: string;
 }
 
 export interface AgentRun {
@@ -194,6 +196,7 @@ export function createGeminiAgent({
                       sha: r.sha as string | undefined,
                       ref: r.ref as string | undefined,
                       url: (r.url ?? r.issueUrl) as string | undefined,
+                      reason: typeof (r.output as { reason?: unknown } | undefined)?.reason === "string" && r.status !== "SUCCESS" ? (r.output as { reason: string }).reason : undefined,
                     }),
               });
               response = out.error ? { error: out.error } : toolResponse(out.result);

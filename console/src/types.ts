@@ -354,6 +354,7 @@ export interface AgentStep {
   ref?: string;
   url?: string;
   error?: string;
+  reason?: string;
 }
 
 export interface AgentRun {

@@ -443,3 +443,20 @@ func TestPullGetReportsWhatAMergeNeeds(t *testing.T) {
 		t.Fatal("read without a permit")
 	}
 }
+
+func TestFailuresCarryAReasonAndDotIsTheRoot(t *testing.T) {
+	if path, ok := cleanPath("."); !ok || path != "" {
+		t.Fatal(". is not the root")
+	}
+	p, policy, provider := setup()
+	policy.policies = `@id("c") permit(principal == Agent::"developer-agent", action == Action::"github.issue.Create", resource == Repository::"test-owner/test-repo");`
+	provider.fail = true
+	r, err := callOp(t, p, CreateAction, "developer-agent", map[string]any{"repository": repo, "title": "t", "body": "b"})
+	if err != nil || r.Status != "ERROR" || r.Output.(map[string]any)["reason"] == "" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	raw, _ := json.Marshal(policy.events)
+	if strings.Contains(string(raw), "SECRET") {
+		t.Fatal("reason reached the audit log")
+	}
+}

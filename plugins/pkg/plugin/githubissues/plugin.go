@@ -288,7 +288,7 @@ var (
 // at most 512 bytes. Leading and trailing slashes are dropped; "" is the root.
 func cleanPath(path string) (string, bool) {
 	path = strings.Trim(path, "/")
-	if path == "" {
+	if path == "" || path == "." {
 		return "", true
 	}
 	if len(path) > 512 {
@@ -820,9 +820,12 @@ func (p *Plugin) enforce(ctx context.Context, c *proto.GithubCallRequest, op ope
 		if op.action == CreateAction {
 			out.IssueURL = done.URL
 		}
-	} else if pre := (precondition{}); asPrecondition(err, &pre) {
-		// GitHub refused for a stated, safe reason (e.g. the branch moved).
-		out.Status = "REFUSED"
+	} else {
+		if pre := (precondition{}); asPrecondition(err, &pre) {
+			// Refused for a stated reason (e.g. the branch moved): nothing was written.
+			out.Status = "REFUSED"
+		}
+		out.Output = map[string]string{"reason": safeReason(err)}
 	}
 	ev.Stage = "outcome"
 	ev.GithubCalled = out.GithubCalled
@@ -833,11 +836,6 @@ func (p *Plugin) enforce(ctx context.Context, c *proto.GithubCallRequest, op ope
 	defer auditCancel()
 	if err := p.record(auditCtx, ev); err != nil {
 		out.Status = "OUTCOME_AUDIT_UNAVAILABLE"
-	}
-	if out.Status == "REFUSED" {
-		var pre precondition
-		asPrecondition(err, &pre)
-		out.Output = map[string]string{"reason": pre.msg}
 	}
 	return response(out)
 }
@@ -854,6 +852,20 @@ func asPrecondition(err error, into *precondition) bool {
 		*into = pre
 	}
 	return ok
+}
+
+// safeReason explains a failed operation to the caller using only messages
+// the plugin wrote: a stated refusal, or GitHub's HTTP status. Any other
+// error text may come from elsewhere and is never passed on (nor audited).
+func safeReason(err error) string {
+	var pre precondition
+	if asPrecondition(err, &pre) {
+		return pre.msg
+	}
+	if r, ok := err.(refusal); ok {
+		return r.Error() + "; check GitHub before retrying"
+	}
+	return "the GitHub request failed and its outcome may be unknown; check GitHub before retrying"
 }
 
 var auditRefRE = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)

@@ -257,3 +257,16 @@ func TestRealProviderCountsPeopleAndMergesTheReviewedHead(t *testing.T) {
 		t.Fatalf("refusal: %v", err)
 	}
 }
+
+func TestRealProviderNamesAMissingAppPermission(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	p := &realProvider{appID: "123", installationID: "456", key: key, now: time.Now}
+	p.client = &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 422, Body: io.NopCloser(strings.NewReader(`{"message":"SECRET The permissions requested are not granted"}`)), Header: make(http.Header)}, nil
+	})}
+	_, err := p.ReadContents(context.Background(), "test-owner/test-repo", "", "")
+	var pre precondition
+	if !asPrecondition(err, &pre) || !strings.Contains(pre.msg, "contents: read") || strings.Contains(pre.msg, "SECRET") {
+		t.Fatalf("%v", err)
+	}
+}

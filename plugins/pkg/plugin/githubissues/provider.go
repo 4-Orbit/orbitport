@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -68,6 +69,11 @@ func (p *realProvider) token(ctx context.Context, repo string, perms map[string]
 	}
 	if err := p.request(ctx, http.MethodPost, "/app/installations/"+p.installationID+"/access_tokens", appToken,
 		map[string]any{"repositories": []string{name}, "permissions": perms}, &issued, http.StatusCreated); err != nil {
+		// 422 (or 403/404): the installation doesn't grant these permissions
+		// or this repository. Nothing was written, so say what's missing.
+		if r, ok := err.(refusal); ok && (r.status == http.StatusUnprocessableEntity || r.status == http.StatusForbidden || r.status == http.StatusNotFound) {
+			return "", precondition{fmt.Sprintf("GitHub didn't issue a token with %s for %s (HTTP %d): give the GitHub App that permission and accept it on the installation", describePerms(perms), repo, r.status)}
+		}
 		return "", err
 	}
 	if issued.Token == "" {
@@ -91,6 +97,16 @@ func (p *realProvider) Create(ctx context.Context, repo, title, body string) (in
 		return 0, fmt.Errorf("invalid issue response")
 	}
 	return issue.Number, nil
+}
+
+// describePerms renders {"contents":"write"} as "contents: write".
+func describePerms(perms map[string]string) string {
+	names := make([]string, 0, len(perms))
+	for k, v := range perms {
+		names = append(names, k+": "+v)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func ownerOf(repo string) string {

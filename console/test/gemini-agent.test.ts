@@ -201,3 +201,13 @@ test("repeated denials end the run without another Gemini turn", async () => {
   assert.equal(gemini.requests.length, MAX_DENIALS_IN_A_ROW);
   assert.match(run.final ?? "", /denied/);
 });
+
+test("an allowed call that fails keeps its reason", async () => {
+  const gemini = fakeGemini([[call("read_file", { path: "README.md" })], [text("ok")]]);
+  const run = await createGeminiAgent({ apiKey: "k", fetchImpl: gemini.fetchImpl }).run({ task: "t", scope, mode: "real" }, async () => ({
+    result: { decision: "ALLOW", status: "REFUSED", output: { reason: "GitHub didn't issue a token with contents: read" } },
+  }));
+  assert.match(run.steps[0].reason ?? "", /contents: read/);
+  const response = (gemini.requests[1].contents[2].parts[0] as { functionResponse: { response: { output: { reason: string } } } }).functionResponse.response;
+  assert.match(response.output.reason, /contents: read/);
+});
