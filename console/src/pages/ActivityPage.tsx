@@ -225,12 +225,13 @@ function Filters({ filter, onChange, seenAgents }: { filter: AuditFilter; onChan
 
 function Detail({ ev, keys, fromConsole }: { ev: AuditEvent; keys: KeyInfo[] | null; fromConsole: boolean }) {
   const draft = useDraft();
-  const replayable = uidType(ev.resource) === "Key" && ev.action.startsWith('Action::"kms.');
+  const replayable = (uidType(ev.resource) === "Key" && ev.action.startsWith('Action::"kms.')) || (uidType(ev.resource) === "Repository" && ev.action.startsWith('Action::"github.') && !ev.resource.includes("<invalid>"));
   const replay = () => {
     draft.setPendingSim({
       agentId: uidType(ev.principal) === "Agent" ? uidId(ev.principal) : undefined,
       action: uidId(ev.action),
       resource: { type: uidType(ev.resource), id: uidId(ev.resource) },
+      ...(ev.context && { context: ev.context }),
     });
     go("simulate");
   };
@@ -260,6 +261,18 @@ function Detail({ ev, keys, fromConsole }: { ev: AuditEvent; keys: KeyInfo[] | n
         <dd>
           <PolicyChips ids={ev.determiningPolicies} />
         </dd>
+        {ev.context && (
+          <>
+            <dt>Trusted context</dt>
+            <dd className="mono small">
+              {Object.entries(ev.context).map(([k, v]) => (
+                <div key={k}>
+                  {k} = {Array.isArray(v) ? `[${v.join(", ")}]` : String(v)}
+                </div>
+              ))}
+            </dd>
+          </>
+        )}
         {ev.authzErrors && (
           <>
             <dt>Authz errors</dt>
@@ -323,14 +336,14 @@ function DenyExplanation({ ev, keys }: { ev: AuditEvent; keys: KeyInfo[] | null 
     () =>
       api
         .explain(
-          { agentId, action, resource: { type, id, ...(tags && { tags }), ...(key && { attrs: { scheme: key.scheme, keySpec: key.keySpec, keyUsage: key.keyUsage } }) } },
+          { agentId, action, resource: { type, id, ...(tags && { tags }), ...(key && { attrs: { scheme: key.scheme, keySpec: key.keySpec, keyUsage: key.keyUsage } }) }, ...(ev.context && { context: ev.context }) },
           source,
           Number.isFinite(at) ? at : undefined,
         )
         .then((r) => r.explanation),
     // tags/key are captured through tagsKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agentId, action, type, id, ev.policyVersion, platformOnly, at, tagsKey],
+    [agentId, action, type, id, ev.policyVersion, platformOnly, at, tagsKey, ev.requestId],
   );
   const request = { agentId, action, resource: id, resourceType: type };
   return (

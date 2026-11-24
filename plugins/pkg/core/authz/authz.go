@@ -8,7 +8,8 @@
 //   - fail closed: parse errors, evaluation errors, unknown actions, missing
 //     tenant and malformed input all yield DENY;
 //   - trusted time: context.currentTime always comes from the caller-supplied
-//     trusted clock, and no other context exists;
+//     trusted clock; the only other context is the per-action trusted context
+//     an enforcing plugin computes (context.go, D-035);
 //   - trusted membership: roles come from the tenant's entity store, never
 //     from the request.
 package authz
@@ -70,11 +71,14 @@ type Resource struct {
 	Tags   map[string]string `json:"tags,omitempty"`
 }
 
-// Request is one authorization question.
+// Request is one authorization question. Context holds the action's
+// declared trusted-context fields (ContextFields); currentTime is always
+// added from the trusted clock and can't be supplied.
 type Request struct {
-	Principal Principal `json:"principal"`
-	Action    string    `json:"action"`
-	Resource  Resource  `json:"resource"`
+	Principal Principal      `json:"principal"`
+	Action    string         `json:"action"`
+	Resource  Resource       `json:"resource"`
+	Context   map[string]any `json:"context,omitempty"`
 }
 
 // Result is the decision plus the policies that determined it. Diagnostics
@@ -121,6 +125,14 @@ var (
 // not listed here before Cedar runs.
 var actionGroups = map[string]string{
 	"github.issue.Create":    "github.write",
+	"github.contents.Read":   "github.read",
+	"github.issue.Comment":   "github.write",
+	"github.branch.Create":   "github.code",
+	"github.commit.Create":   "github.code",
+	"github.pr.Create":       "github.pr",
+	"github.pr.Review":       "github.review",
+	"github.pr.Merge":        "github.merge",
+	"github.pr.Get":          "github.read",
 	"kms.Encrypt":            "use",
 	"kms.Decrypt":            "use",
 	"kms.Sign":               "use",
@@ -146,6 +158,14 @@ var actionGroups = map[string]string{
 // Resource type each action applies to.
 var actionResource = map[string]string{
 	"github.issue.Create":    "Repository",
+	"github.contents.Read":   "Repository",
+	"github.issue.Comment":   "Repository",
+	"github.branch.Create":   "Repository",
+	"github.commit.Create":   "Repository",
+	"github.pr.Create":       "Repository",
+	"github.pr.Review":       "Repository",
+	"github.pr.Merge":        "Repository",
+	"github.pr.Get":          "Repository",
 	"kms.ListKeys":           "KeyNamespace",
 	"kms_keystore.Put":       "KeyStoreKey",
 	"kms_keystore.Get":       "KeyStoreKey",
@@ -499,13 +519,21 @@ type prepared struct {
 	set      *cedar.PolicySet
 	entities cedar.EntityGetter
 	req      cedar.Request
+	// The action's trusted context, without currentTime.
+	context cedar.RecordMap
 }
 
-// at returns the Cedar request with the trusted time as its only context.
+// at returns the Cedar request with the trusted time and the action's
+// trusted context.
 func (p prepared) at(now time.Time) cedar.Request {
 	r := p.req
-	// The only context: trusted time, as an integer Cedar Long (US5).
-	r.Context = cedar.NewRecord(cedar.RecordMap{"currentTime": cedar.Long(now.Unix())})
+	ctx := cedar.RecordMap{}
+	for k, v := range p.context {
+		ctx[k] = v
+	}
+	// Trusted time, as an integer Cedar Long (US5).
+	ctx["currentTime"] = cedar.Long(now.Unix())
+	r.Context = cedar.NewRecord(ctx)
 	return r
 }
 
@@ -531,6 +559,10 @@ func prepare(c *Compiled, req Request) (prepared, string) {
 	}
 	if req.Resource.ID == "" || len(req.Resource.ID) > maxResourceIDLen {
 		return prepared{}, "malformed resource id"
+	}
+	context, msg := buildContext(actionContext[req.Action], req.Context)
+	if msg != "" {
+		return prepared{}, msg
 	}
 
 	set := platformSet
@@ -599,6 +631,7 @@ func prepare(c *Compiled, req Request) (prepared, string) {
 	}
 
 	return prepared{
+		context:  context,
 		set:      set,
 		entities: layered{overlay: overlay, base: base},
 		req: cedar.Request{

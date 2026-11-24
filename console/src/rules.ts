@@ -52,6 +52,14 @@ export interface Capability {
 /** What the builder offers, in display order. Groups first, then single actions. */
 export const CAPABILITIES: Capability[] = [
   { id: "github.issue.Create", label: "Create issues", verb: "create issues", prep: "in", resourceType: "Repository" },
+  { id: "github.contents.Read", label: "Read files", verb: "read files", prep: "in", resourceType: "Repository" },
+  { id: "github.issue.Comment", label: "Comment on issues", verb: "comment on issues", prep: "in", resourceType: "Repository" },
+  { id: "github.branch.Create", label: "Create branches", verb: "create branches", prep: "in", resourceType: "Repository" },
+  { id: "github.commit.Create", label: "Commit to branches", verb: "commit to branches", prep: "in", resourceType: "Repository" },
+  { id: "github.pr.Create", label: "Open pull requests", verb: "open pull requests", prep: "in", resourceType: "Repository" },
+  { id: "github.pr.Review", label: "Review pull requests", verb: "review pull requests", prep: "in", resourceType: "Repository" },
+  { id: "github.pr.Merge", label: "Merge pull requests", verb: "merge pull requests", prep: "in", resourceType: "Repository" },
+  { id: "github.pr.Get", label: "View pull requests", verb: "view pull requests", prep: "in", resourceType: "Repository" },
   { id: "use", label: "Use keys (encrypt, decrypt, sign, data keys)", verb: "use", prep: "" },
   { id: "kms.Encrypt", label: "Encrypt", verb: "encrypt", prep: "with", group: "use" },
   { id: "kms.Decrypt", label: "Decrypt", verb: "decrypt", prep: "with", group: "use" },

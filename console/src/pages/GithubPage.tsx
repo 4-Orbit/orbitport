@@ -6,6 +6,8 @@ import { useRepositories, useSourceAgents } from "./shared.ts";
 import { ExplanationView } from "../components/Explanation.tsx";
 import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import type { GithubIssueResult, SimulateResult } from "../types.ts";
+import { useAgentRun } from "../agent-run.tsx";
+import { AgentRunView } from "../components/AgentRunView.tsx";
 
 export function GithubPage() {
   const draft = useDraft();
@@ -13,8 +15,11 @@ export function GithubPage() {
   const agents = useSourceAgents("active", draft);
   const repositories = useRepositories();
   const mode = repositories.mode;
-  const [agentId, setAgentId] = useState("");
-  const [repository, setRepository] = useState("");
+  // The agent, repository and agent task survive leaving the page (and a
+  // reload), so coming back from another tab never quietly switches agent.
+  const remembered = recall();
+  const [agentId, setAgentId] = useState(remembered.agentId ?? "");
+  const [repository, setRepository] = useState(remembered.repository ?? "");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [task, setTask] = useState("");
@@ -25,12 +30,19 @@ export function GithubPage() {
   const [result, setResult] = useState<GithubIssueResult | null>(null);
   const [simulation, setSimulation] = useState<SimulateResult | null>(null);
   const feedbackBanner = useRef<HTMLDivElement>(null);
+  const [agentTask, setAgentTask] = useState(remembered.agentTask ?? "");
+  const [confirmAgent, setConfirmAgent] = useState(false);
+  const agentRun = useAgentRun();
+  const agentRunning = !!agentRun.current && agentRun.current.status !== "done";
 
   useEffect(() => {
-    const ids = agents.data ?? [];
-    setAgentId((cur) => cur || (ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
+    // Wait for the list: until it loads, the remembered agent can't be checked.
+    if (!agents.data) return;
+    const ids = agents.data;
+    setAgentId((cur) => (cur && ids.includes(cur) ? cur : ids.includes("developer-agent") ? "developer-agent" : (ids[0] ?? "")));
   }, [agents.data]);
   useEffect(() => setRepository((cur) => cur || (repositories.data?.[0] ?? "")), [repositories.data]);
+  useEffect(() => remember({ agentId, repository, agentTask }), [agentId, repository, agentTask]);
   useEffect(() => { if (result || error) feedbackBanner.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [result, error]);
   const changed = () => { setSimulation(null); setResult(null); setProposedTitle(null); setConfirmGemini(false); };
 
@@ -60,9 +72,19 @@ export function GithubPage() {
     } finally { setBusy(false); }
   }
 
+  async function runAgent() {
+    setError(null);
+    try {
+      await agentRun.start(agentId, repository, agentTask);
+      setConfirmAgent(false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   const simulated = simulation?.results[0];
   return <div className="stack">
-    <header><h1>GitHub issues</h1><p>Create one issue as a registered agent. The active policy decides whether it can proceed.</p></header>
+    <header><h1>GitHub</h1><p>Act in the configured repository as a registered agent: create an issue yourself, or let Gemini work on a task. The active policy decides every request.</p></header>
     <div className={`banner ${mode === "real" ? "banner-error" : ""}`}>
       {mode === "real" ? "LIVE · Allowed requests create real GitHub issues." : mode === "mock" ? "MOCK · Exercises authorization and audit without contacting GitHub." : repositories.error ? "The GitHub service is unavailable." : "Connecting to the GitHub service…"}
     </div>
@@ -99,6 +121,21 @@ export function GithubPage() {
         <p className="muted small">Uses the agent and repository selected above. Gemini can write the issue text; it cannot choose the agent or repository.</p>
       </form>
     </section>
+    <section className="panel">
+      <header className="panel-head"><h2>Gemini agent</h2></header>
+      <form className="panel-body stack" onSubmit={(e) => { e.preventDefault(); void runAgent(); }}>
+        <p>Gemini works on a task in the selected repository as the selected agent, using GitHub tools. <strong>Every tool call is checked by the active policy</strong>; denied calls are reported back to Gemini and recorded in Activity.</p>
+        <label className="field"><span>Task</span><textarea value={agentTask} maxLength={4000} rows={5} disabled={busy} onChange={(e) => { setAgentTask(e.target.value); setConfirmAgent(false); }} placeholder="e.g. Read README.md, fix the typo in the first paragraph on a new branch, and open a pull request" required /></label>
+        <label className="row"><input type="checkbox" checked={confirmAgent} disabled={busy} onChange={(e) => setConfirmAgent(e.target.checked)} /><span>{mode === "real" ? "I understand Gemini may make real changes in this repository (issues, branches, commits, pull requests) wherever the policy allows." : "I understand Gemini will run against the mock repository."}</span></label>
+        <div className="row">
+          <button type="submit" className="button primary" disabled={busy || agentRunning || !mode || !repository || !agentId || !agentTask.trim() || !confirmAgent}>{agentRunning ? "Gemini is working…" : "Run Gemini agent"}</button>
+          {agentRunning && <button type="button" className="button danger" disabled={agentRun.current?.status === "stopping"} onClick={() => void agentRun.stop()}>{agentRun.current?.status === "stopping" ? "Stopping…" : "Stop"}</button>}
+        </div>
+        <p className="muted small">At most 12 tool calls and 2 minutes per run. The run continues if you switch pages (a corner toast shows its progress). Stop ends it at the next safe point: a pending Gemini call is cancelled, a GitHub call already sent finishes first. Gemini can't choose the agent or the repository. Nothing is retried automatically.</p>
+        {agentRun.error && <p className="field-hint">{agentRun.error}</p>}
+      </form>
+    </section>
+    {agentRun.current && <AgentRunView state={agentRun.current} onStop={() => void agentRun.stop()} />}
     {simulated && <section className="panel" aria-live="polite"><div className="panel-body stack">
       <h2>Policy check · {simulation?.source}</h2><div><DecisionBadge decision={simulated.decision} /> <PolicyChips ids={simulated.determiningPolicies} /></div>
       {simulated.explanation && <ExplanationView explanation={simulated.explanation} request={{ agentId: simulated.request.agentId, action: simulated.request.action, resource: simulated.request.resource.id, resourceType: "Repository" }} />}
@@ -113,4 +150,25 @@ export function GithubPage() {
       <span className="muted small">Policy v{result.policyVersion} · {result.mode.toUpperCase()}</span>
     </div></section>}
   </div>;
+}
+
+const FORM_KEY = "orbitport-github-form-v1";
+
+/** The page's last agent, repository and agent task (this browser tab only). */
+function recall(): { agentId?: string; repository?: string; agentTask?: string } {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(FORM_KEY) ?? "{}") as Record<string, unknown>;
+    const str = (x: unknown) => (typeof x === "string" ? x : undefined);
+    return { agentId: str(v.agentId), repository: str(v.repository), agentTask: str(v.agentTask) };
+  } catch {
+    return {};
+  }
+}
+
+function remember(v: { agentId: string; repository: string; agentTask: string }) {
+  try {
+    sessionStorage.setItem(FORM_KEY, JSON.stringify(v));
+  } catch {
+    // storage unavailable: the form just starts fresh next time
+  }
 }

@@ -189,6 +189,96 @@
     }
   },
   {
+    "name": "github-developer-read-and-create",
+    "rule": {
+      "id": "github-developer-read-and-create",
+      "effect": "permit",
+      "who": {
+        "kind": "role",
+        "id": "developer"
+      },
+      "can": [
+        "github.issue.Create",
+        "github.contents.Read",
+        "github.issue.Comment",
+        "github.branch.Create",
+        "github.commit.Create",
+        "github.pr.Create",
+        "github.pr.Review",
+        "github.pr.Merge",
+        "github.pr.Get"
+      ],
+      "on": {
+        "kind": "repositories",
+        "ids": [
+          "4-Orbit/orbitport-issue-test"
+        ]
+      }
+    },
+    "cedar": "@id(\"github-developer-read-and-create\")\npermit (\n  principal in Role::\"developer\",\n  action in [Action::\"github.issue.Create\", Action::\"github.contents.Read\", Action::\"github.issue.Comment\", Action::\"github.branch.Create\", Action::\"github.commit.Create\", Action::\"github.pr.Create\", Action::\"github.pr.Review\", Action::\"github.pr.Merge\", Action::\"github.pr.Get\"],\n  resource == Repository::\"4-Orbit/orbitport-issue-test\"\n);",
+    "json": {
+      "annotations": {
+        "id": "github-developer-read-and-create"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "in",
+        "entities": [
+          {
+            "type": "Action",
+            "id": "github.issue.Create"
+          },
+          {
+            "type": "Action",
+            "id": "github.contents.Read"
+          },
+          {
+            "type": "Action",
+            "id": "github.issue.Comment"
+          },
+          {
+            "type": "Action",
+            "id": "github.branch.Create"
+          },
+          {
+            "type": "Action",
+            "id": "github.commit.Create"
+          },
+          {
+            "type": "Action",
+            "id": "github.pr.Create"
+          },
+          {
+            "type": "Action",
+            "id": "github.pr.Review"
+          },
+          {
+            "type": "Action",
+            "id": "github.pr.Merge"
+          },
+          {
+            "type": "Action",
+            "id": "github.pr.Get"
+          }
+        ]
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Repository",
+          "id": "4-Orbit/orbitport-issue-test"
+        }
+      }
+    }
+  },
+  {
     "name": "developer-encrypt-dev-key",
     "rule": {
       "id": "developer-encrypt-dev-key",
@@ -682,6 +772,61 @@
           "id": "4-Orbit/private-repo"
         }
       }
+    }
+  },
+  {
+    "name": "github-read-outside-secrets",
+    "rule": null,
+    "cedar": "@id(\"github-read-outside-secrets\") permit (principal in Role::\"developer\", action == Action::\"github.contents.Read\", resource == Repository::\"4-Orbit/orbitport-issue-test\") unless { context.path like \"secrets/*\" };",
+    "json": {
+      "annotations": {
+        "id": "github-read-outside-secrets"
+      },
+      "effect": "permit",
+      "principal": {
+        "op": "in",
+        "entity": {
+          "type": "Role",
+          "id": "developer"
+        }
+      },
+      "action": {
+        "op": "==",
+        "entity": {
+          "type": "Action",
+          "id": "github.contents.Read"
+        }
+      },
+      "resource": {
+        "op": "==",
+        "entity": {
+          "type": "Repository",
+          "id": "4-Orbit/orbitport-issue-test"
+        }
+      },
+      "conditions": [
+        {
+          "kind": "unless",
+          "body": {
+            "like": {
+              "left": {
+                ".": {
+                  "left": {
+                    "Var": "context"
+                  },
+                  "attr": "path"
+                }
+              },
+              "pattern": [
+                {
+                  "Literal": "secrets/"
+                },
+                "Wildcard"
+              ]
+            }
+          }
+        }
+      ]
     }
   },
   {

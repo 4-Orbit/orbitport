@@ -7,6 +7,8 @@ import { DecisionBadge, PolicyChips } from "../components/Badges.tsx";
 import { SourcePicker, toSource, type SourceChoice } from "../components/SourcePicker.tsx";
 import { useKeys, useRepositories, useSchema, useSourceAgents, useVersions } from "./shared.ts";
 import { EntityPicker } from "../components/EntityPicker.tsx";
+import { ContextFields } from "../components/ContextFields.tsx";
+import { contextForRequest, contextProblem, defaultContext } from "../context-fields.ts";
 import { actionGroups, resourceField, resourceForAction, resourceProblem, resourceTypeOf } from "../resource-fields.ts";
 import { Pager } from "../components/Pager.tsx";
 
@@ -34,10 +36,11 @@ export function TestsPage() {
   const actionOptions = useMemo(() => actionGroups(schema?.actions ?? []), [schema]);
   const newType = resourceTypeOf(newCase.action, schema?.actions);
   const newField = resourceField(newType);
-  const newProblem = resourceProblem(newType, newCase.resource.id);
+  const newContextFields = schema?.actions.find((a) => a.name === newCase.action)?.context ?? [];
+  const newProblem = resourceProblem(newType, newCase.resource.id) ?? contextProblem(newContextFields, newCase.context ?? {});
   const resourceOptions = { keys: keyAliases, repositories: repositories.data ?? [] };
   const changeAction = (action: string) =>
-    setNewCase({ ...newCase, action, resource: { type: resourceTypeOf(action, schema?.actions), id: resourceForAction(newType, resourceTypeOf(action, schema?.actions), newCase.resource.id, resourceOptions) } });
+    setNewCase({ ...newCase, action, context: defaultContext(schema?.actions.find((a) => a.name === action)?.context), resource: { type: resourceTypeOf(action, schema?.actions), id: resourceForAction(newType, resourceTypeOf(action, schema?.actions), newCase.resource.id, resourceOptions) } });
 
   useEffect(() => {
     api.tests().then((r) => setTests(r.tests)).catch((e: Error) => setStatus({ tone: "error", text: e.message }));
@@ -123,7 +126,8 @@ export function TestsPage() {
             e.preventDefault();
             if (newProblem || !newCase.action) return;
             const name = newCase.name || `${newCase.agentId || "(account)"} ${newCase.action} ${newCase.resource.id}`;
-            edit([...(tests ?? []), { ...newCase, name, agentId: newCase.agentId || undefined, resource: { type: newType, id: newCase.resource.id } }]);
+            const context = contextForRequest(newContextFields, newCase.context ?? {});
+            edit([...(tests ?? []), { ...newCase, name, agentId: newCase.agentId || undefined, resource: { type: newType, id: newCase.resource.id }, context }]);
             setNewCase({ ...newCase, name: "" });
           }}
         >
@@ -172,6 +176,7 @@ export function TestsPage() {
             problem={newProblem}
             note={newType === "Key" && keys.more ? `Showing the first ${keyAliases.length} keys; use Other… for any other alias.` : undefined}
           />
+          <ContextFields fields={newContextFields} values={newCase.context ?? {}} onChange={(context) => setNewCase({ ...newCase, context })} agents={agents.data ?? []} />
           <label className="field">
             <span>Expect</span>
             <select value={newCase.expect} onChange={(e) => setNewCase({ ...newCase, expect: e.target.value as Decision })}>

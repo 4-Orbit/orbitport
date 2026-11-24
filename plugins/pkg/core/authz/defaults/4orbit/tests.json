@@ -1106,5 +1106,420 @@
       "id": "other-owner/other-repo"
     },
     "expect": "DENY"
+  },
+  {
+    "name": "developer-agent read README.md",
+    "agentId": "developer-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "README.md"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent read secrets/token.txt",
+    "agentId": "developer-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "secrets/token.txt"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent read README.md",
+    "agentId": "security-agent",
+    "action": "github.contents.Read",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "path": "README.md"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent comment demo-owner/orbitport-test",
+    "agentId": "developer-agent",
+    "action": "github.issue.Comment",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent comment demo-owner/orbitport-test",
+    "agentId": "security-agent",
+    "action": "github.issue.Comment",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create branch agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent create branch agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent create branch main",
+    "agentId": "developer-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "main",
+      "isDefaultBranch": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent create branch agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.branch.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent commit .github/workflows/ci.yml to agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/developer-agent/fix",
+      "branchAgent": "developer-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        ".github/workflows/ci.yml"
+      ],
+      "touchesWorkflows": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "agent/security-agent/fix",
+      "branchAgent": "security-agent",
+      "isDefaultBranch": false,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent commit README.md to main",
+    "agentId": "developer-agent",
+    "action": "github.commit.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "branch": "main",
+      "isDefaultBranch": true,
+      "paths": [
+        "README.md"
+      ],
+      "touchesWorkflows": false
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent open pull request from agent/developer-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "developer-agent open pull request from agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent open pull request from agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Create",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "isDefaultBase": true
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent request_changes review on agent/developer-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "REQUEST_CHANGES",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "security-agent approve review on agent/developer-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "APPROVE",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "security-agent comment review on agent/security-agent/fix",
+    "agentId": "security-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "COMMENT",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent comment review on agent/security-agent/fix",
+    "agentId": "developer-agent",
+    "action": "github.pr.Review",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "authorIsApp": true,
+      "event": "COMMENT",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 1 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 0 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 0,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/developer-agent/fix with 1 approvals (blocked)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "developer-agent",
+      "headBranch": "agent/developer-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "blocked"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent merge agent/deployment-agent/fix with 1 approvals (clean)",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "deployment-agent",
+      "headBranch": "agent/deployment-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "developer-agent merge agent/security-agent/fix with 1 approvals (clean)",
+    "agentId": "developer-agent",
+    "action": "github.pr.Merge",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "context": {
+      "baseBranch": "main",
+      "headAgent": "security-agent",
+      "headBranch": "agent/security-agent/fix",
+      "humanApprovals": 1,
+      "isDefaultBase": true,
+      "mergeableState": "clean"
+    },
+    "expect": "DENY"
+  },
+  {
+    "name": "deployment-agent read pull request",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Get",
+    "resource": {
+      "type": "Repository",
+      "id": "demo-owner/orbitport-test"
+    },
+    "expect": "ALLOW"
+  },
+  {
+    "name": "deployment-agent read pull request elsewhere",
+    "agentId": "deployment-agent",
+    "action": "github.pr.Get",
+    "resource": {
+      "type": "Repository",
+      "id": "other-owner/other-repo"
+    },
+    "expect": "DENY"
   }
 ]

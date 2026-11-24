@@ -5,8 +5,9 @@
 // `action == Action::"kms.Encrypt"` or `action in Action::"use"`.
 //
 // Every resource carries `tenant`; the platform policy fences tenants.
-// `context.currentTime` is set by the enforcing plugin's trusted clock and is
-// the only context a policy can read.
+// `context.currentTime` is set by the enforcing plugin's trusted clock. GitHub
+// actions add trusted context computed by plugin-github from GitHub, never from
+// the caller (D-035); each such action declares its context type below.
 
 entity Role;
 entity Account { tenant: String };
@@ -24,10 +25,86 @@ entity PolicySet { tenant: String };
 entity Repository { tenant: String, owner: String, name: String };
 
 type TrustedContext = { currentTime: Long };
+// The repository path the read targets ("" is the root).
+type ContentsContext = { currentTime: Long, path: String };
+// A branch write. branchAgent is the agent an agent/<agent-id>/... branch
+// belongs to, so a policy can say "only your own branches".
+type BranchContext = { currentTime: Long, branch: String, isDefaultBranch: Bool, branchAgent?: Agent };
+// A pull request proposal. headAgent is the agent whose agent/<agent-id>/...
+// branch is proposed; baseBranch defaults to the repository's default branch.
+type PullCreateContext = { currentTime: Long, headBranch: String, baseBranch: String, isDefaultBase: Bool, headAgent?: Agent };
+// A pull request review. event is COMMENT, REQUEST_CHANGES or APPROVE;
+// headAgent is the agent whose branch the pull request proposes, so a policy
+// can forbid reviewing your own work; authorIsApp says the App opened it.
+type ReviewContext = { currentTime: Long, event: String, headBranch: String, headAgent?: Agent, authorIsApp: Bool };
+// A merge. humanApprovals counts people (not the App) whose latest review
+// approves the current head commit; mergeableState is GitHub's
+// mergeable_state ("clean" means mergeable with passing checks).
+type MergeContext = {
+  currentTime: Long,
+  headBranch: String,
+  baseBranch: String,
+  isDefaultBase: Bool,
+  headAgent?: Agent,
+  humanApprovals: Long,
+  mergeableState: String,
+};
+// A commit: the branch fields, every path it adds, changes or deletes, and
+// whether any of them is under .github/workflows/.
+type CommitContext = {
+  currentTime: Long,
+  branch: String,
+  isDefaultBranch: Bool,
+  branchAgent?: Agent,
+  paths: Set<String>,
+  touchesWorkflows: Bool,
+};
 
-action "use", "rotate", "read", "admin", "keystore", "policy", "github.write";
+action "use", "rotate", "read", "admin", "keystore", "policy", "github.write", "github.read", "github.code", "github.pr", "github.review", "github.merge";
 
-action "github.issue.Create" in ["github.write"] appliesTo {
+action "github.pr.Merge" in ["github.merge"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: MergeContext,
+};
+
+action "github.pr.Review" in ["github.review"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: ReviewContext,
+};
+
+action "github.pr.Create" in ["github.pr"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: PullCreateContext,
+};
+
+action "github.branch.Create" in ["github.code"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: BranchContext,
+};
+
+action "github.commit.Create" in ["github.code"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: CommitContext,
+};
+
+action "github.contents.Read" in ["github.read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: ContentsContext,
+};
+
+action "github.pr.Get" in ["github.read"] appliesTo {
+  principal: [Account, Agent],
+  resource: [Repository],
+  context: TrustedContext,
+};
+
+action "github.issue.Create", "github.issue.Comment" in ["github.write"] appliesTo {
   principal: [Account, Agent],
   resource: [Repository],
   context: TrustedContext,

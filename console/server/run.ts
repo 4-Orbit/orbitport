@@ -194,6 +194,39 @@ export class Runner {
     return out.body.result;
   }
 
+  /**
+   * One github.* call as the agent, for the Gemini agent's tools. Only
+   * github.* methods; the agent token never leaves this process.
+   */
+  async githubCall(operatorToken: string, agentId: string, method: string, params: Record<string, unknown>): Promise<{ result?: unknown; error?: string }> {
+    if (!/^github\.[A-Za-z.]+$/.test(method) || method === "github.ListRepositories") return { error: "not a GitHub operation" };
+    const agent = await this.agentToken(operatorToken, agentId);
+    const out = await callGateway(this.deps.gatewayUrl, agent.token, { method, params }, this.deps.fetchImpl);
+    return "error" in out.body ? { error: out.body.error.message } : { result: out.body.result };
+  }
+
+  /** The App installation's granted and required permissions; null if they can't be read. */
+  async githubInstallation(operatorToken: string): Promise<{ permissions: Record<string, string>; required: Record<string, Record<string, string>> } | null> {
+    const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "github.GetInstallation", params: {} }, this.deps.fetchImpl);
+    const r = "result" in out.body ? (out.body.result as { permissions?: unknown; required?: unknown } | null) : null;
+    if (!r || typeof r.permissions !== "object" || !r.permissions || typeof r.required !== "object" || !r.required) return null;
+    return r as { permissions: Record<string, string>; required: Record<string, Record<string, string>> };
+  }
+
+  /** policy.Simulate against the active version; null if it fails (the caller then skips the preflight). */
+  async simulate(operatorToken: string, requests: unknown[]): Promise<unknown[] | null> {
+    const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "policy.Simulate", params: { requests } }, this.deps.fetchImpl);
+    const results = "result" in out.body ? (out.body.result as { results?: unknown } | null)?.results : null;
+    return Array.isArray(results) ? results : null;
+  }
+
+  /** mock or real, from the GitHub service (null if it can't be reached). */
+  async githubMode(operatorToken: string): Promise<"mock" | "real" | null> {
+    const out = await callGateway(this.deps.gatewayUrl, operatorToken, { method: "github.ListRepositories", params: {} }, this.deps.fetchImpl);
+    const mode = "result" in out.body ? (out.body.result as { mode?: unknown } | null)?.mode : null;
+    return mode === "mock" || mode === "real" ? mode : null;
+  }
+
   private takeRateSlot() {
     const now = this.deps.now();
     this.recent = this.recent.filter((t) => now - t < 60_000);

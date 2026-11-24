@@ -119,7 +119,7 @@ func TestAccountPrincipalKeepsOwnerAccess(t *testing.T) {
 			if ResourceTypeFor(action) == "Repository" {
 				id = "test-owner/test-repo"
 			}
-			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: id}}, beforeExpiry)
+			res := Evaluate(c, Request{Principal: Principal{Tenant: tenant}, Action: action, Resource: Resource{ID: id}, Context: sampleContext(action)}, beforeExpiry)
 			if res.Decision != Allow || res.DeterminingPolicies[0] != "platform.owner" {
 				t.Errorf("account %s: want ALLOW by platform.owner, got %s %v", action, res.Decision, res.DeterminingPolicies)
 			}
@@ -329,7 +329,76 @@ func generatedTests() []TestCase {
 	} {
 		cases = append(cases, TestCase{Name: tc.agent + " create issue " + tc.repo, AgentID: tc.agent, Action: "github.issue.Create", Resource: Resource{Type: "Repository", ID: tc.repo}, Expect: tc.expect})
 	}
+	cases = append(cases, githubOperationTests()...)
 	return cases
+}
+
+// githubOperationTests are the template's cases for GitHub operations with
+// trusted context, one ALLOW and the DENYs that matter per rule.
+func githubOperationTests() []TestCase {
+	demo := Resource{Type: "Repository", ID: "demo-owner/orbitport-test"}
+	branch := func(agent, name string, expect Decision) TestCase {
+		ctx := map[string]any{"branch": name, "isDefaultBranch": name == "main"}
+		if owner := strings.TrimPrefix(name, "agent/"); owner != name {
+			ctx["branchAgent"] = strings.SplitN(owner, "/", 2)[0]
+		}
+		return TestCase{Name: agent + " create branch " + name, AgentID: agent, Action: "github.branch.Create", Resource: demo, Context: ctx, Expect: expect}
+	}
+	commit := func(agent, name, path string, expect Decision) TestCase {
+		tc := branch(agent, name, expect)
+		tc.Name = agent + " commit " + path + " to " + name
+		tc.Action = "github.commit.Create"
+		tc.Context["paths"] = []string{path}
+		tc.Context["touchesWorkflows"] = strings.HasPrefix(path, ".github/workflows/")
+		return tc
+	}
+	pull := func(agent, head string, expect Decision) TestCase {
+		ctx := map[string]any{"headBranch": head, "baseBranch": "main", "isDefaultBase": true}
+		if owner := strings.TrimPrefix(head, "agent/"); owner != head {
+			ctx["headAgent"] = strings.SplitN(owner, "/", 2)[0]
+		}
+		return TestCase{Name: agent + " open pull request from " + head, AgentID: agent, Action: "github.pr.Create", Resource: demo, Context: ctx, Expect: expect}
+	}
+	review := func(agent, head, event string, expect Decision) TestCase {
+		ctx := map[string]any{"event": event, "headBranch": head, "authorIsApp": true, "headAgent": strings.SplitN(strings.TrimPrefix(head, "agent/"), "/", 2)[0]}
+		return TestCase{Name: agent + " " + strings.ToLower(event) + " review on " + head, AgentID: agent, Action: "github.pr.Review", Resource: demo, Context: ctx, Expect: expect}
+	}
+	merge := func(agent, head string, approvals int, state string, expect Decision) TestCase {
+		ctx := map[string]any{"headBranch": head, "baseBranch": "main", "isDefaultBase": true, "humanApprovals": approvals, "mergeableState": state, "headAgent": strings.SplitN(strings.TrimPrefix(head, "agent/"), "/", 2)[0]}
+		return TestCase{Name: fmt.Sprintf("%s merge %s with %d approvals (%s)", agent, head, approvals, state), AgentID: agent, Action: "github.pr.Merge", Resource: demo, Context: ctx, Expect: expect}
+	}
+	read := func(agent, path string, expect Decision) TestCase {
+		return TestCase{Name: agent + " read " + path, AgentID: agent, Action: "github.contents.Read", Resource: demo, Context: map[string]any{"path": path}, Expect: expect}
+	}
+	return []TestCase{
+		read("developer-agent", "README.md", Allow),
+		read("developer-agent", "secrets/token.txt", Deny),
+		read("security-agent", "README.md", Deny),
+		{Name: "developer-agent comment demo-owner/orbitport-test", AgentID: "developer-agent", Action: "github.issue.Comment", Resource: demo, Expect: Allow},
+		{Name: "security-agent comment demo-owner/orbitport-test", AgentID: "security-agent", Action: "github.issue.Comment", Resource: demo, Expect: Deny},
+		branch("developer-agent", "agent/developer-agent/fix", Allow),
+		branch("developer-agent", "agent/security-agent/fix", Deny),
+		branch("developer-agent", "main", Deny),
+		branch("security-agent", "agent/security-agent/fix", Deny),
+		commit("developer-agent", "agent/developer-agent/fix", "README.md", Allow),
+		commit("developer-agent", "agent/developer-agent/fix", ".github/workflows/ci.yml", Deny),
+		commit("developer-agent", "agent/security-agent/fix", "README.md", Deny),
+		commit("developer-agent", "main", "README.md", Deny),
+		pull("developer-agent", "agent/developer-agent/fix", Allow),
+		pull("developer-agent", "agent/security-agent/fix", Deny),
+		pull("security-agent", "agent/security-agent/fix", Deny),
+		review("security-agent", "agent/developer-agent/fix", "REQUEST_CHANGES", Allow),
+		review("security-agent", "agent/developer-agent/fix", "APPROVE", Deny),
+		review("security-agent", "agent/security-agent/fix", "COMMENT", Deny),
+		review("developer-agent", "agent/security-agent/fix", "COMMENT", Deny),
+		merge("deployment-agent", "agent/developer-agent/fix", 1, "clean", Allow),
+		merge("deployment-agent", "agent/developer-agent/fix", 0, "clean", Deny),
+		merge("deployment-agent", "agent/developer-agent/fix", 1, "blocked", Deny),
+		merge("deployment-agent", "agent/deployment-agent/fix", 1, "clean", Deny),
+		merge("developer-agent", "agent/security-agent/fix", 1, "clean", Deny),
+		{Name: "deployment-agent read pull request", AgentID: "deployment-agent", Action: "github.pr.Get", Resource: demo, Expect: Allow},
+		{Name: "deployment-agent read pull request elsewhere", AgentID: "deployment-agent", Action: "github.pr.Get", Resource: Resource{Type: "Repository", ID: "other-owner/other-repo"}, Expect: Deny},
+	}
 }
 
 func TestDefaultTestsMatchMatrix(t *testing.T) {

@@ -2047,3 +2047,77 @@ tr.row-active td {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ---------- trusted context (GitHub actions) ---------- */
+
+.context-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.context-fields legend {
+  padding: 0 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.context-fields > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.context-fields .muted.small {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.agent-final {
+  white-space: pre-wrap;
+  margin: 6px 0 0;
+}
+
+.agent-outcome {
+  min-width: 180px;
+  max-width: 360px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Gemini agent run toast ---------- */
+
+.agent-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  width: min(380px, calc(100vw - 36px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.agent-toast-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-toast-last {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

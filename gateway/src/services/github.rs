@@ -4,7 +4,19 @@ use crate::plugins::PluginCatalog;
 use crate::proto::plugins::github::GithubCallRequest;
 use serde_json::value::RawValue;
 
-pub const GITHUB_METHODS: &[&str] = &["github.ListRepositories", "github.issue.Create"];
+pub const GITHUB_METHODS: &[&str] = &[
+    "github.ListRepositories",
+    "github.GetInstallation",
+    "github.issue.Create",
+    "github.contents.Read",
+    "github.issue.Comment",
+    "github.branch.Create",
+    "github.commit.Create",
+    "github.pr.Create",
+    "github.pr.Review",
+    "github.pr.Merge",
+    "github.pr.Get",
+];
 
 #[derive(Debug)]
 pub struct GithubCall {
@@ -66,7 +78,16 @@ mod tests {
                 .is_ok()
         );
         assert!(GithubCall::parse("github.ListRepositories", "{}").is_ok());
-        assert!(GithubCall::parse("github.pr.Merge", "{}").is_err());
+        assert!(GithubCall::parse("github.GetInstallation", "{}").is_ok());
+        assert!(GithubCall::parse("github.contents.Read", "{}").is_ok());
+        assert!(GithubCall::parse("github.issue.Comment", "{}").is_ok());
+        assert!(GithubCall::parse("github.branch.Create", "{}").is_ok());
+        assert!(GithubCall::parse("github.commit.Create", "{}").is_ok());
+        assert!(GithubCall::parse("github.pr.Create", "{}").is_ok());
+        assert!(GithubCall::parse("github.pr.Review", "{}").is_ok());
+        assert!(GithubCall::parse("github.pr.Merge", "{}").is_ok());
+        assert!(GithubCall::parse("github.pr.Get", "{}").is_ok());
+        assert!(GithubCall::parse("github.pr.Close", "{}").is_err());
         assert!(
             GithubCall::parse("github.issue.Create", "null")
                 .unwrap()

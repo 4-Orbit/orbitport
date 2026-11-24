@@ -75,7 +75,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
 
   const errors: string[] = [];
   if ((who.kind === "role" || who.kind === "agent") && !who.id) errors.push(`Choose ${who.kind === "role" ? "a role" : "an agent"}.`);
-  if (!everything && can.length === 0) errors.push(github ? "Choose Create issues." : "Choose at least one action, or tick “Everything”.");
+  if (!everything && can.length === 0) errors.push(github ? "Choose at least one GitHub action." : "Choose at least one action, or tick “Everything”.");
   if (on.kind === "keys" && on.ids.length === 0) errors.push("Choose at least one key, or pick “any key”.");
   if (on.kind === "repositories" && (on.ids.length === 0 || on.ids.some((id) => !REPOSITORY_ID_RE.test(id)))) errors.push("Choose at least one repository in owner/name format.");
   if (github && (everything || can.some((id) => !capabilities.some((c) => c.id === id)))) errors.push("Choose a supported GitHub action.");
@@ -211,7 +211,7 @@ export function RuleBuilder({ initial, prefill, roles, agents, keys, repositorie
               ))}
             </div>
           )}
-          {github && <p className="muted small">Create issues is supported. Editing and closing issues are not available yet.</p>}
+          {github && <p className="muted small">These rules cover whole repositories. Conditions on paths, branches or approvals (trusted context) are written in Cedar code.</p>}
           {everything && <p className="muted small">Includes rotating and creating keys.</p>}
         </fieldset>
 

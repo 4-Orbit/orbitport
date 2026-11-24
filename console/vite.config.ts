@@ -9,7 +9,8 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    proxy: { "/api": "http://127.0.0.1:4317" },
+    // scripts/dev.mjs sets CONSOLE_API_URL when the dev API server moves port.
+    proxy: { "/api": process.env.CONSOLE_API_URL ?? "http://127.0.0.1:4317" },
   },
   // CodeMirror makes the single admin bundle ~600 kB; that is fine here.
   build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 800 },

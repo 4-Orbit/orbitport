@@ -12,6 +12,7 @@ import { AgentsPage } from "./pages/AgentsPage.tsx";
 import { HelpPage } from "./pages/HelpPage.tsx";
 
 import { GithubPage } from "./pages/GithubPage.tsx";
+import { AgentRunToast } from "./components/AgentRunToast.tsx";
 
 const TABS: { page: Page; label: string }[] = [
   { page: "activity", label: "Activity" },
@@ -91,6 +92,8 @@ export function App() {
         {route.page === "github" && <GithubPage />}
         {route.page === "help" && <HelpPage />}
       </main>
+      {/* The GitHub page shows the run in full; everywhere else, a corner toast. */}
+      {route.page !== "github" && <AgentRunToast />}
     </div>
   );
 }
